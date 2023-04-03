@@ -1,0 +1,10 @@
+torch
+numpy
+scipy
+matplotlib
+torchdiffeq
+tqdm
+ipykernel
+ipywidgets
+black
+isort
