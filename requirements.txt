@@ -1,4 +1,7 @@
-torch
+#torch
+jax
+jaxopt
+optax
 numpy
 scipy
 matplotlib
