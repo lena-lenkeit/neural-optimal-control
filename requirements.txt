@@ -2,6 +2,8 @@
 jax
 jaxopt
 optax
+diffrax
+equinox
 numpy
 scipy
 matplotlib
