@@ -79,7 +79,7 @@ def trapezoidal_rule(h, f, y0, t0, t1, *args, num_newton_iters=4):
         0,
         num_newton_iters,
         lambda i, y1: newton_iteration(g, y1),
-        y0,  # + h * f(y0, t0, *args) # Initial guess via Forward Euler
+        y0 + h * f(y0, t0, *args),  # Initial guess via Forward Euler
     )
 
 
