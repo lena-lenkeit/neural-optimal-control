@@ -5,6 +5,15 @@ import jax.numpy as jnp
 from jax import lax
 
 
+@partial(jax.jit, static_argnums=(0,))
+def newton_iteration(f, x, *args):
+    j_at_x = jax.jacfwd(f)(x, *args)
+    f_at_x = f(x, *args)
+
+    delta_x = jnp.linalg.solve(j_at_x, -f_at_x)
+    return x + delta_x
+
+
 @partial(jax.jit, static_argnums=(1,))
 def rk4(h, f, y, t, *args):
     k1 = f(y, t, *args)
@@ -23,15 +32,6 @@ def odeint_rk4(func, y0, t, *args):
         return (y_next, t), y_next
 
     return lax.scan(scan_func, (y0, t[0]), t)[1]
-
-
-@partial(jax.jit, static_argnums=(0,))
-def newton_iteration(f, x, *args):
-    j_at_x = jax.jacfwd(f)(x, *args)
-    f_at_x = f(x, *args)
-
-    delta_x = jnp.linalg.solve(j_at_x, -f_at_x)
-    return x + delta_x
 
 
 # @partial(jax.jit, static_argnums=(0,))
