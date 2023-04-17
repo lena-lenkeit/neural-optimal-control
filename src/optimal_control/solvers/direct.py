@@ -1,10 +1,14 @@
 import abc
 from functools import partial
+from typing import Any, Callable, List
 
+import diffrax
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike, Float
+from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar
+
+from optimal_control.constraints import AbstractConstraint
 
 
 class AbstractSolver(eqx.Module):
@@ -27,6 +31,7 @@ class InterpolationControl(AbstractControl):
     steps: int
     t_start: float
     t_end: float
+    method: str = "linear"
 
     def __init__(self, channels: int, steps: int, t_start: float, t_end: float, key):
         self.control = jnp.zeros((steps, channels))
@@ -34,15 +39,30 @@ class InterpolationControl(AbstractControl):
     @staticmethod
     def interpolate_linear(x: ArrayLike, xp: ArrayLike, fp: ArrayLike) -> Array:
         vintp = jax.vmap(jnp.interp, in_axes=(None, None, -1), out_axes=-1)
-        return vintp(x, xp, fp)
+        return vintp(x, xp, fp, left=0.0, right=0.0)
 
-    # @staticmethod
-    # def interpolate_step()
+    @staticmethod
+    def interpolate_step(x: ArrayLike, xp: ArrayLike, fp: ArrayLike) -> Array:
+        def interp(x: ArrayLike, xp: ArrayLike, fp: ArrayLike) -> Array:
+            idx = jnp.searchsorted(xp, x)
+            y = jnp.where(idx == 0, 0.0, fp[idx - 1])
+
+            return y
+
+        vintp = jax.vmap(interp, in_axes=(None, None, -1), out_axes=-1)
+        return vintp(x, xp, fp, left=0.0, right=0.0)
+
+    @staticmethod
+    def interpolate(x: ArrayLike, xp: ArrayLike, fp: ArrayLike, method: str) -> Array:
+        if method == "linear":
+            return InterpolationControl.interpolate_linear(x, xp, fp)
+        elif method == "step":
+            return InterpolationControl.interpolate_step(x, xp, fp)
 
     def __call__(self, t: ArrayLike) -> Array:
         t = (t - self.t_start) / (self.t_end - self.t_start)
         return InterpolationControl.interpolate(
-            t, jnp.linspace(0.0, 1.0, self.steps), self.control
+            t, jnp.linspace(0.0, 1.0, self.steps), self.control, self.method
         )
 
 
@@ -51,13 +71,10 @@ class ImplicitControl(AbstractControl):
 
 
 class DirectSolver(AbstractSolver):
-    control: AbstractControl
-
-    def init(
-        self,
-        num_controls: int,
-        control_start: float,
-        control_end: float,
-        control_steps: int,
-    ):
-        return
+    def step(
+        environment: Callable[[Scalar, ArrayLike, Any], Array],
+        rewards: Callable[[Array], ArrayLike],
+        constraints: List[AbstractConstraint],
+        control: AbstractControl,
+    ) -> AbstractControl:
+        pass
