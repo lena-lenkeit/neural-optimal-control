@@ -1,7 +1,11 @@
-from abc import ABC
-
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import lax
+from jaxtyping import PyTree
 
-# class Environment(ABC):
+EnvironmentState = PyTree
+
+
+class AbstractEnvironment(eqx.Module):
+    ...

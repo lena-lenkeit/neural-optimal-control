@@ -1,8 +1,12 @@
 from typing import Callable
 
+import diffrax
 import jax
 import jax.numpy as jnp
-from jax._src.typing import Array, ArrayLike
+from jaxtyping import Array, ArrayLike, Scalar
+
+from optimal_control.environments import AbstractEnvironment, EnvironmentState
+from optimal_control.solvers import AbstractControl
 
 
 @jax.jit
@@ -70,3 +74,52 @@ def fibrosis_ode(x: Array, t: ArrayLike, u: Callable[[ArrayLike], Array]) -> Arr
     )  # PDGF
 
     return jnp.array([dx0, dx1, dx2, dx3])
+
+
+class FibrosisEnvironment(AbstractEnvironment):
+    def init(self) -> EnvironmentState:
+        return {
+            "y0": self._integrate(
+                0.0,
+                300.0,
+                jnp.asarray([1.0, 1.0, 0.0, 0.0]),
+                lambda _: jnp.asarray([0.0, 0.0]),
+                diffrax.SaveAt(t1=True),
+            )
+        }
+
+    def _integrate(
+        self,
+        t0: Scalar,
+        t1: Scalar,
+        y0: Array,
+        u: Callable[[ArrayLike], Array],
+        saveat: diffrax.SaveAt,
+    ) -> diffrax.Solution:
+        terms = diffrax.ODETerm(lambda t, y, args: fibrosis_ode(y, t, args))
+        solver = diffrax.Kvaerno5()
+        stepsize_controller = diffrax.PIDController(rtol=1e-5, atol=0.0)
+
+        sol = diffrax.diffeqsolve(
+            terms,
+            solver,
+            t0,
+            t1,
+            0.01,
+            y0,
+            args=u,
+            saveat=saveat,
+            stepsize_controller=stepsize_controller,
+            max_steps=10000,
+        )
+
+        return sol
+
+    def integrate(self, control: AbstractControl, state: EnvironmentState) -> Array:
+        return self._integrate(
+            0.0,
+            200.0,
+            state["y0"],
+            control,
+            diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
+        ).ys
