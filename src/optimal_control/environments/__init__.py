@@ -1,2 +1,1 @@
-import optimal_control.environments.examples
 from optimal_control.environments.base import AbstractEnvironment, EnvironmentState

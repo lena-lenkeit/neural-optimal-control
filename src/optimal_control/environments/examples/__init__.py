@@ -1,1 +1,4 @@
-from optimal_control.environments.examples.fibrosis import fibrosis_ode
+from optimal_control.environments.examples.fibrosis import (
+    FibrosisEnvironment,
+    fibrosis_ode,
+)

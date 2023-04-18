@@ -6,9 +6,10 @@ import diffrax
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike, Float, PyTree, Scalar
+from jaxtyping import Array, ArrayLike
 
-from optimal_control.constraints import AbstractConstraint
+import optimal_control.constraints as constraints
+import optimal_control.environments as environments
 
 
 class AbstractSolver(eqx.Module):
@@ -72,9 +73,9 @@ class ImplicitControl(AbstractControl):
 
 class DirectSolver(AbstractSolver):
     def step(
-        environment: Callable[[Scalar, ArrayLike, Any], Array],
+        environment: environments.AbstractEnvironment,
         rewards: Callable[[Array], ArrayLike],
-        constraints: List[AbstractConstraint],
+        constraints: List[constraints.AbstractConstraint],
         control: AbstractControl,
     ) -> AbstractControl:
         pass
