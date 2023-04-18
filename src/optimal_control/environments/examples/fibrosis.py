@@ -94,7 +94,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
                 lambda _: jnp.asarray([0.0, 0.0]),
                 True,
                 diffrax.SaveAt(t1=True),
-            ).ys
+            ).ys[0]
         }
 
     def _integrate(
@@ -108,19 +108,19 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
     ) -> diffrax.Solution:
         terms = diffrax.ODETerm(lambda t, y, args: fibrosis_ode(y, t, *args))
         solver = diffrax.Kvaerno5()
-        stepsize_controller = diffrax.PIDController(rtol=1e-5, atol=0.0)
+        stepsize_controller = diffrax.PIDController(rtol=1e-7, atol=0.0)
 
         sol = diffrax.diffeqsolve(
             terms,
             solver,
             t0,
             t1,
-            0.01,
+            0.001,
             y0,
             args=(u, inflammation_pulse),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
-            max_steps=10000,
+            max_steps=None,
         )
 
         return sol
@@ -132,7 +132,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             0.0,
             200.0,
             state["y0"],
-            control,
+            control.__call__,
             False,
             diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
         ).ys

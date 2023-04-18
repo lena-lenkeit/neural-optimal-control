@@ -1,1 +1,7 @@
-from optimal_control.solvers.direct import AbstractControl, AbstractSolver, DirectSolver
+from optimal_control.solvers.direct import (
+    AbstractControl,
+    AbstractSolver,
+    DirectSolver,
+    ImplicitControl,
+    InterpolationControl,
+)
