@@ -1,16 +1,38 @@
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Tuple
 
+import equinox as eqx
 from jaxtyping import Array, ArrayLike
 from tqdm.auto import tqdm as tq
+from tqdm.auto import trange
 
-from optimal_control.constraints import AbstractConstraint
-from optimal_control.solvers import AbstractSolver
+import optimal_control.environments as environments
+import optimal_control.solvers as solvers
 
 
 def solve_optimal_control_problem(
-    environment: Callable[[Array, ArrayLike, Any], Array],
+    environment: environments.AbstractEnvironment,
     rewards: Callable[[Array], ArrayLike],
-    constraints: List[AbstractConstraint],
-    solver: AbstractSolver,
+    constraints: List[solvers.AbstractConstraint],
+    solver: solvers.AbstractSolver,
+    control: solvers.AbstractControl,
+    num_steps: int,
 ):
-    pass
+    def _init(
+        environment: environments.AbstractEnvironment,
+        solver: solvers.AbstractSolver,
+        control: solvers.AbstractControl,
+    ):
+        ...
+
+    @eqx.jit_filtered
+    def _step(
+        environment: environments.AbstractEnvironment,
+        rewards: Callable[[Array], ArrayLike],
+        constraints: List[solvers.AbstractConstraint],
+        solver: solvers.AbstractSolver,
+        control: solvers.AbstractControl,
+    ) -> Tuple[ArrayLike, solver.AbstractControl]:
+        ...
+
+    for _ in trange(num_steps):
+        ...
