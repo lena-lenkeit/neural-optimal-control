@@ -6,8 +6,8 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike
 
+import optimal_control.controls as controls
 import optimal_control.environments as environments
-import optimal_control.solvers as solvers
 
 
 @partial(jax.jit, static_argnums=(2, 3))
@@ -126,7 +126,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         return sol
 
     def integrate(
-        self, control: solvers.AbstractControl, state: environments.EnvironmentState
+        self, control: controls.AbstractControl, state: environments.EnvironmentState
     ) -> Array:
         return self._integrate(
             0.0,
