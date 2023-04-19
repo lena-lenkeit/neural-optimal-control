@@ -31,7 +31,7 @@ def solve_optimal_control_problem(
 
         return environment_state, optimizer_state
 
-    @eqx.jit_filtered
+    @eqx.filter_jit
     def _step(
         optimizer_state: optax.OptState,
         optimizer: optax.GradientTransformation,
