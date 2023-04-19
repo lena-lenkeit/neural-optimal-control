@@ -120,7 +120,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             args=(u, inflammation_pulse),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
-            max_steps=None,
+            max_steps=100000,
         )
 
         return sol
