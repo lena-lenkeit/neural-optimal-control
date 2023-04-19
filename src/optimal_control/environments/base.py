@@ -6,7 +6,11 @@ from jaxtyping import Array, PyTree
 
 import optimal_control.controls as controls
 
-EnvironmentState = PyTree
+# EnvironmentState = PyTree
+
+
+class EnvironmentState(eqx.Module):
+    ...
 
 
 class AbstractEnvironment(eqx.Module):

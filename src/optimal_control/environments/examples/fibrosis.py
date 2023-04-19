@@ -84,10 +84,14 @@ def fibrosis_ode(
     return jnp.array([dx0, dx1, dx2, dx3])
 
 
+class FibrosisState(environments.EnvironmentState):
+    y0: Array
+
+
 class FibrosisEnvironment(environments.AbstractEnvironment):
-    def init(self) -> environments.EnvironmentState:
-        return {
-            "y0": self._integrate(
+    def init(self) -> FibrosisState:
+        return FibrosisState(
+            self._integrate(
                 0.0,
                 300.0,
                 jnp.asarray([1.0, 1.0, 0.0, 0.0]),
@@ -95,7 +99,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
                 True,
                 diffrax.SaveAt(t1=True),
             ).ys[0]
-        }
+        )
 
     def _integrate(
         self,
@@ -126,12 +130,12 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         return sol
 
     def integrate(
-        self, control: controls.AbstractControl, state: environments.EnvironmentState
+        self, control: controls.AbstractControl, state: FibrosisState
     ) -> Array:
         return self._integrate(
             0.0,
             200.0,
-            state["y0"],
+            state.y0,
             control.__call__,
             False,
             diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
