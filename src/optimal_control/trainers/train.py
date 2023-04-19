@@ -41,7 +41,7 @@ def solve_optimal_control_problem(
         _constraints: List[constraints.AbstractConstraint],
         control: controls.AbstractControl,
         solver: solvers.AbstractSolver,
-    ) -> Tuple[ArrayLike, controls.AbstractControl]:
+    ) -> Tuple[ArrayLike, controls.AbstractControl, optax.OptState]:
         return solver.step(
             optimizer_state,
             optimizer,
@@ -57,7 +57,7 @@ def solve_optimal_control_problem(
 
     pbar = trange(num_steps)
     for _ in pbar:
-        reward, control = _step(
+        reward, control, optimizer_state = _step(
             optimizer_state,
             optimizer,
             environment_state,

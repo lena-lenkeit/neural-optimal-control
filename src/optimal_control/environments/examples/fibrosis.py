@@ -2,6 +2,7 @@ from functools import partial
 from typing import Callable
 
 import diffrax
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike
@@ -10,11 +11,12 @@ import optimal_control.controls as controls
 import optimal_control.environments as environments
 
 
-@partial(jax.jit, static_argnums=(2, 3))
+@partial(jax.jit, static_argnums=(3, 4))
 def fibrosis_ode(
     x: Array,
     t: ArrayLike,
-    u: Callable[[ArrayLike], Array],
+    u_params: controls.AbstractControl,
+    u_static: controls.AbstractControl,
     inflammation_pulse: bool = False,
 ) -> Array:
     k = {}
@@ -55,6 +57,7 @@ def fibrosis_ode(
         jnp.concatenate((jnp.zeros_like(u[:1]), u), axis=0),
     )"""
 
+    u = eqx.combine(u_params, u_static)
     u_at_t = u(t)
 
     # PDGF antibody
@@ -95,7 +98,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
                 0.0,
                 300.0,
                 jnp.asarray([1.0, 1.0, 0.0, 0.0]),
-                lambda _: jnp.asarray([0.0, 0.0]),
+                controls.LambdaControl(lambda _: jnp.zeros(4)),
                 True,
                 diffrax.SaveAt(t1=True),
             ).ys[0]
@@ -106,13 +109,13 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         t0: float,
         t1: float,
         y0: Array,
-        u: Callable[[ArrayLike], Array],
+        control: controls.AbstractControl,
         inflammation_pulse: bool,
         saveat: diffrax.SaveAt,
     ) -> diffrax.Solution:
         terms = diffrax.ODETerm(lambda t, y, args: fibrosis_ode(y, t, *args))
         solver = diffrax.Kvaerno5()
-        stepsize_controller = diffrax.PIDController(rtol=1e-7, atol=0.0)
+        stepsize_controller = diffrax.PIDController(rtol=1e-7, atol=1e-7)
 
         sol = diffrax.diffeqsolve(
             terms,
@@ -121,7 +124,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             t1,
             0.001,
             y0,
-            args=(u, inflammation_pulse),
+            args=eqx.partition(control, eqx.is_array) + (inflammation_pulse,),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
             max_steps=100000,
@@ -136,7 +139,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             0.0,
             200.0,
             state.y0,
-            control.__call__,
+            control,
             False,
             diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
         ).ys

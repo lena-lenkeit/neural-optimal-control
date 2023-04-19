@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Optional
+from typing import Callable, Optional
 
 import equinox as eqx
 import jax
@@ -11,6 +11,13 @@ from optimal_control.utils import exists
 
 class AbstractControl(eqx.Module):
     r""""""
+
+
+class LambdaControl(AbstractControl):
+    control_fun: Callable[[ArrayLike], Array]
+
+    def __call__(self, t: ArrayLike) -> Array:
+        return self.control_fun(t)
 
 
 class InterpolationControl(AbstractControl):

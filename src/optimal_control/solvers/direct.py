@@ -43,35 +43,41 @@ class DirectSolver(AbstractSolver):
         environment_state: environments.EnvironmentState,
         environment: environments.AbstractEnvironment,
         rewards: Callable[[Array], ArrayLike],
-        constraints: List[constraints.AbstractConstraint],
+        _constraints: List[constraints.AbstractConstraint],
         control: controls.AbstractControl,
-    ) -> Tuple[ArrayLike, controls.AbstractControl]:
+    ) -> Tuple[ArrayLike, controls.AbstractControl, optax.OptState]:
+        @partial(jax.jit, static_argnums=(1, 2))
         @jax.value_and_grad
-        def _reward(params, static, environment_state):
+        def _reward(params, static, rewards, environment, environment_state):
             control = eqx.combine(params, static)
             env_seq = environment.integrate(control, environment_state)
-            reward = rewards(env_seq)
+            reward = -rewards(env_seq)
 
             return reward
 
         def _ensure_constraints(
             control: controls.AbstractControl,
-            constraints: List[constraints.AbstractConstraint],
+            _constraints: List[constraints.AbstractConstraint],
         ) -> controls.AbstractControl:
             # Ensure validity of constraints
-            for constraint in constraints:
+            for constraint in _constraints:
                 control = eqx.tree_at(
                     lambda control: control.control,
                     control,
-                    replace_fn=constraint.project(),
+                    replace_fn=constraint.project,
                 )
 
             return control
 
-        control = _ensure_constraints(control, constraints)
-        params, static = eqx.partition(control, eqx.is_array)
-        reward, grads = _reward(params, static, environment_state)
-        optimizer.update(-grads, optimizer_state, params)
-        control = _ensure_constraints(control, constraints)
+        control = _ensure_constraints(control, _constraints)
 
-        return reward, control
+        params, static = eqx.partition(control, eqx.is_array)
+        reward, grads = _reward(params, static, rewards, environment, environment_state)
+
+        updates, optimizer_state = optimizer.update(grads, optimizer_state, params)
+        params = optax.apply_updates(params, updates)
+
+        control = eqx.combine(params, static)
+        control = _ensure_constraints(control, _constraints)
+
+        return -reward, control, optimizer_state
