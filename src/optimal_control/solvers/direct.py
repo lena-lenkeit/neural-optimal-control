@@ -46,7 +46,6 @@ class DirectSolver(AbstractSolver):
         _constraints: List[constraints.AbstractConstraint],
         control: controls.AbstractControl,
     ) -> Tuple[ArrayLike, controls.AbstractControl, optax.OptState]:
-        @partial(jax.jit, static_argnums=(1, 2))
         @jax.value_and_grad
         def _reward(params, static, rewards, environment, environment_state):
             control = eqx.combine(params, static)
