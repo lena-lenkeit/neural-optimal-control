@@ -37,5 +37,11 @@ class NonNegativeConstantIntegralConstraint(AbstractConstraint):
 
         return control
 
+    def transform(self, control: Array) -> Array:
+        raise NotImplementedError()
+
+    def penalty(self, control: Array) -> ArrayLike:
+        raise NotImplementedError()
+
     def is_instantaneous(self) -> bool:
         return False
