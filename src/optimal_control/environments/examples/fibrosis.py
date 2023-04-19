@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Callable
+from typing import Callable, Tuple
 
 import diffrax
 import equinox as eqx
@@ -11,14 +11,12 @@ import optimal_control.controls as controls
 import optimal_control.environments as environments
 
 
-@partial(jax.jit, static_argnums=(3, 4))
+# @partial(jax.jit, static_argnums=(3, 4))
 def fibrosis_ode(
-    x: Array,
-    t: ArrayLike,
-    u_params: controls.AbstractControl,
-    u_static: controls.AbstractControl,
-    inflammation_pulse: bool = False,
+    t: ArrayLike, y: Array, args: Tuple[controls.AbstractControl, bool]
 ) -> Array:
+    u, inflammation_pulse = args
+
     k = {}
 
     k[0] = 0.9  # proliferation rates: lambda1=0.9/day,
@@ -57,31 +55,31 @@ def fibrosis_ode(
         jnp.concatenate((jnp.zeros_like(u[:1]), u), axis=0),
     )"""
 
-    u = eqx.combine(u_params, u_static)
+    # u = eqx.combine(u_params, u_static)
     u_at_t = u(t)
 
     # PDGF antibody
     k_pdfg_ab = 1 * 1440  # 1 / (min * molecule)
-    pdgf_ab_deg = -k_pdfg_ab * x[3] * u_at_t[0]
+    pdgf_ab_deg = -k_pdfg_ab * y[3] * u_at_t[0]
 
     # CSF1 antibody
     k_csf1_ab = 1 * 1440  # 1 / (min * molecule)
-    csf1_ab_deg = -k_csf1_ab * x[2] * u_at_t[1]
+    csf1_ab_deg = -k_csf1_ab * y[2] * u_at_t[1]
 
     # Cytostatic drug
     # k[0] = 0.9 * (1 - u_at_t[1] / (u_at_t[1] + 1.0))
 
-    dx0 = x[0] * (k[0] * x[3] / (k[10] + x[3]) * (1 - x[0] / k[3]) - k[2])  # Fibrobasts
-    dx1 = x[1] * (k[1] * x[2] / (k[11] + x[2]) - k[2]) + k[12]  # Mph
+    dx0 = y[0] * (k[0] * y[3] / (k[10] + y[3]) * (1 - y[0] / k[3]) - k[2])  # Fibrobasts
+    dx1 = y[1] * (k[1] * y[2] / (k[11] + y[2]) - k[2]) + k[12]  # Mph
     dx2 = (
-        csf1_ab_deg + k[6] * x[0] - k[8] * x[1] * x[2] / (k[11] + x[2]) - k[4] * x[2]
+        csf1_ab_deg + k[6] * y[0] - k[8] * y[1] * y[2] / (k[11] + y[2]) - k[4] * y[2]
     )  # CSF
     dx3 = (
         pdgf_ab_deg
-        + k[7] * x[1]
-        + k[5] * x[0]
-        - k[9] * x[0] * x[3] / (k[10] + x[3])
-        - k[4] * x[3]
+        + k[7] * y[1]
+        + k[5] * y[0]
+        - k[9] * y[0] * y[3] / (k[10] + y[3])
+        - k[4] * y[3]
     )  # PDGF
 
     return jnp.array([dx0, dx1, dx2, dx3])
@@ -113,7 +111,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         inflammation_pulse: bool,
         saveat: diffrax.SaveAt,
     ) -> diffrax.Solution:
-        terms = diffrax.ODETerm(lambda t, y, args: fibrosis_ode(y, t, *args))
+        terms = diffrax.ODETerm(fibrosis_ode)
         solver = diffrax.Kvaerno5()
         stepsize_controller = diffrax.PIDController(rtol=1e-7, atol=1e-7)
 
@@ -124,7 +122,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             t1,
             0.001,
             y0,
-            args=eqx.partition(control, eqx.is_array) + (inflammation_pulse,),
+            args=(control, inflammation_pulse),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
             max_steps=100000,
