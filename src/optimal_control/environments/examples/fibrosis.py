@@ -113,7 +113,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
     ) -> diffrax.Solution:
         terms = diffrax.ODETerm(fibrosis_ode)
         solver = diffrax.Kvaerno5()
-        stepsize_controller = diffrax.PIDController(rtol=1e-7, atol=1e-7)
+        stepsize_controller = diffrax.PIDController(rtol=1e-5, atol=0.0)
 
         sol = diffrax.diffeqsolve(
             terms,
@@ -135,9 +135,9 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
     ) -> Array:
         return self._integrate(
             0.0,
-            200.0,
+            100.0,
             state.y0,
             control,
             False,
-            diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
+            diffrax.SaveAt(ts=jnp.linspace(0.0, 100.0, 101)),
         ).ys
