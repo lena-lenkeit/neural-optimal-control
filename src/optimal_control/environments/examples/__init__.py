@@ -1,3 +1,8 @@
+from optimal_control.environments.examples.apoptosis import (
+    ApoptosisEnvironment,
+    ApoptosisState,
+    apoptosis_ode,
+)
 from optimal_control.environments.examples.fibrosis import (
     FibrosisEnvironment,
     FibrosisState,
