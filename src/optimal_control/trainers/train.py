@@ -27,6 +27,7 @@ class TrainState(eqx.Module):
     _constraints: List[constraints.AbstractConstraint]
     control: controls.AbstractControl
     solver: solvers.AbstractSolver
+    key: jax.random.KeyArray
 
 
 def solve_optimal_control_problem(
@@ -36,6 +37,7 @@ def solve_optimal_control_problem(
     solver: solvers.AbstractSolver,
     control: controls.AbstractControl,
     num_steps: int,
+    key: jax.random.KeyArray,
 ):
     def _init(
         environment: environments.AbstractEnvironment,
@@ -53,6 +55,7 @@ def solve_optimal_control_problem(
     ) -> TrainState:
         train_state = eqx.combine(train_state_jaxtypes, train_state_pytypes)
 
+        key, subkey = jax.random.split(train_state.key)
         reward, control, optimizer_state = solver.step(
             train_state.optimizer_state,
             train_state.optimizer,
@@ -61,6 +64,7 @@ def solve_optimal_control_problem(
             train_state.rewards,
             train_state._constraints,
             train_state.control,
+            subkey,
         )
 
         train_state = TrainState(
@@ -73,6 +77,7 @@ def solve_optimal_control_problem(
             _constraints=train_state._constraints,
             control=control,
             solver=train_state.solver,
+            key=key,
         )
 
         train_state_jaxtypes, train_state_pytypes = eqx.partition(
@@ -81,7 +86,7 @@ def solve_optimal_control_problem(
         # print(train_state_jaxtypes, train_state_pytypes)
         return train_state_jaxtypes
 
-    optimizer = optax.adam(learning_rate=1e-2)
+    optimizer = optax.adam(learning_rate=1e-1)
     environment_state, optimizer_state = _init(environment, solver, control, optimizer)
 
     train_state = TrainState(
@@ -94,6 +99,7 @@ def solve_optimal_control_problem(
         _constraints=_constraints,
         control=control,
         solver=solver,
+        key=key,
     )
 
     train_state_jaxtypes, train_state_pytypes = eqx.partition(train_state, eqx.is_array)

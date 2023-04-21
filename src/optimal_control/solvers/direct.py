@@ -45,11 +45,12 @@ class DirectSolver(AbstractSolver):
         rewards: Callable[[Array], ArrayLike],
         _constraints: List[constraints.AbstractConstraint],
         control: controls.AbstractControl,
+        key: jax.random.KeyArray,
     ) -> Tuple[ArrayLike, controls.AbstractControl, optax.OptState]:
         @jax.value_and_grad
-        def _reward(params, static, rewards, environment, environment_state):
+        def _reward(params, static, rewards, environment, environment_state, key):
             control = eqx.combine(params, static)
-            env_seq = environment.integrate(control, environment_state)
+            env_seq = environment.integrate(control, environment_state, key)
             reward = -rewards(env_seq)
 
             return reward
@@ -71,7 +72,10 @@ class DirectSolver(AbstractSolver):
         control = _ensure_constraints(control, _constraints)
 
         params, static = eqx.partition(control, eqx.is_array)
-        reward, grads = _reward(params, static, rewards, environment, environment_state)
+        # key, subkey = jax.random.split(key)
+        reward, grads = _reward(
+            params, static, rewards, environment, environment_state, key
+        )
 
         updates, optimizer_state = optimizer.update(grads, optimizer_state, params)
         params = optax.apply_updates(params, updates)
