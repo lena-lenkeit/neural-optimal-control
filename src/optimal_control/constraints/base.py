@@ -1,8 +1,11 @@
 import abc
 
+import diffrax
 import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike
+
+import optimal_control.controls as controls
 
 
 class AbstractConstraint(eqx.Module):
@@ -39,6 +42,36 @@ class NonNegativeConstantIntegralConstraint(AbstractConstraint):
 
     def transform(self, control: Array) -> Array:
         raise NotImplementedError()
+
+    def transform_continuous(
+        self, control: controls.AbstractControl
+    ) -> controls.LambdaControl:
+        ## Via continuous softmax
+
+        # Calculate the softmax normalization factor
+        terms = diffrax.ODETerm(lambda t, x, args: jnp.exp(args(t)))
+        solver = diffrax.Dopri5()
+        stepsize_controller = diffrax.PIDController(rtol=1e-3, atol=0.0)
+
+        softmax_denominator = diffrax.diffeqsolve(
+            terms=terms,
+            solver=solver,
+            t0=0.0,
+            t1=1.0,
+            dt0=None,
+            y0=jnp.zeros_like(control(jnp.asarray([0.0]))),
+            args=control,
+            saveat=diffrax.SaveAt(t1=True),
+            max_steps=10000,
+            adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=10000),
+        ).ys[-1]
+
+        # Construct the transformed control
+        transformed_control = controls.LambdaControl(
+            lambda t: jnp.exp(control(t)) / softmax_denominator
+        )
+
+        return transformed_control
 
     def penalty(self, control: Array) -> ArrayLike:
         raise NotImplementedError()
