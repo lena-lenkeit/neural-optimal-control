@@ -2,6 +2,7 @@ import abc
 
 import diffrax
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike
 
@@ -41,34 +42,45 @@ class NonNegativeConstantIntegralConstraint(AbstractConstraint):
         return control
 
     def transform(self, control: Array) -> Array:
-        raise NotImplementedError()
+        ## Via discrete softmax
+
+        return self.integral * jax.nn.softmax(control, axis=0)
 
     def transform_continuous(
         self, control: controls.AbstractControl
     ) -> controls.LambdaControl:
         ## Via continuous softmax
 
-        # Calculate the softmax normalization factor
-        terms = diffrax.ODETerm(lambda t, x, args: jnp.exp(args(t)))
+        # Calculate the softmax normalization factor (diffrax-based integration)
+        """
+        terms = diffrax.ODETerm(lambda t, x, args: jnp.exp(args(t.reshape(1))))
         solver = diffrax.Dopri5()
-        stepsize_controller = diffrax.PIDController(rtol=1e-3, atol=0.0)
+        # stepsize_controller = diffrax.PIDController(rtol=1e-3, atol=0.0)
 
         softmax_denominator = diffrax.diffeqsolve(
             terms=terms,
             solver=solver,
             t0=0.0,
             t1=1.0,
-            dt0=None,
+            dt0=1.0 / 1000,
             y0=jnp.zeros_like(control(jnp.asarray([0.0]))),
             args=control,
             saveat=diffrax.SaveAt(t1=True),
-            max_steps=10000,
-            adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=10000),
+            max_steps=1001,
+            # stepsize_controller=stepsize_controller,
+            adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=1001),
         ).ys[-1]
+        """
+
+        # Calculate the softmax normalization factor (sum-based integration)
+        softmax_denominator = jnp.mean(
+            jnp.exp(jax.vmap(control)(jnp.linspace(0.0, 1.0, 1024).reshape(1024, 1))),
+            axis=0,
+        )
 
         # Construct the transformed control
         transformed_control = controls.LambdaControl(
-            lambda t: jnp.exp(control(t)) / softmax_denominator
+            lambda t: self.integral * jnp.exp(control(t)) / softmax_denominator
         )
 
         return transformed_control
