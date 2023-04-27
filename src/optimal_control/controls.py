@@ -1,10 +1,10 @@
 from functools import partial
-from typing import Callable, Optional
+from typing import Callable, List, Optional, Union
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike
+from jaxtyping import Array, ArrayLike, PyTree
 
 from optimal_control.utils import exists
 
@@ -82,12 +82,150 @@ class InterpolationControl(AbstractControl):
         elif method == "step":
             return InterpolationControl.interpolate_step(x, xp, fp)
 
+    @staticmethod
+    # Weirdly, this is much slower in the Fibrosis environment
+    #   Maybe because it's a step function?
+    def fast_interpolate_step(t: ArrayLike, c: Array, t0: float, t1: float) -> Array:
+        # Find indicies into array
+        i = (t - t0) / (t1 - t0)
+        i = jnp.floor(i * c.shape[0]).astype(jnp.int32)
+
+        # Replace left OOB indices
+        #   We want all OOB indices to return zeros in the gather
+        #   OOB indices on the right count as OOB, hence this works trivially
+        #   OOB indices on the left act as reverse indices, hence we force them OOB
+        i = jnp.where(i < 0, c.shape[0], i)
+
+        # Gather array, replacing OOB indices with 0
+        x = c.at[i].get(mode="fill", fill_value=0.0)
+        return x
+
+    @staticmethod
+    def fast_interpolate_linear(t: ArrayLike, c: Array, t0: float, t1: float) -> Array:
+        # Find continuous indices
+        ci = (t - t0) / (t1 - t0)
+        ci = ci * c.shape[0]
+
+        # Extract left / right index and interpolant
+        li = jnp.floor(ci)
+        ri = li + 1
+        p = ci - li
+
+        # TODO
+        # Add rest
+
     def __call__(self, t: ArrayLike) -> Array:
-        t = (t - self.t_start) / (self.t_end - self.t_start)
-        return InterpolationControl.interpolate(
-            t, jnp.linspace(0.0, 1.0, self.steps), self.control, self.method
-        )
+        if self.method == "step":
+            return InterpolationControl.fast_interpolate_step(
+                t, self.control, self.t_start, self.t_end
+            )
+        else:
+            t = (t - self.t_start) / (self.t_end - self.t_start)
+            return InterpolationControl.interpolate(
+                t, jnp.linspace(0.0, 1.0, self.steps), self.control, self.method
+            )
 
 
 class ImplicitControl(AbstractControl):
-    mlp: eqx.Module
+    control: eqx.Module
+    t_start: float
+    t_end: float
+
+    def __call__(self, t: ArrayLike) -> Array:
+        # Rescale t to [-1, 1]
+        t = (t - self.t_start) / (self.t_end - self.t_start)
+        t = t * 2 - 1
+
+        # Evaluate & clip to zero past borders
+        c = self.control(t)
+        c = jnp.where((t < -1) | (t > 1), 0.0, c)
+
+        return c
+
+
+class SineLayer(eqx.Module):
+    weight: Array
+    bias: Array
+    omega: float
+    is_linear: bool
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        key: jax.random.KeyArray,
+        is_first: bool = False,
+        is_linear: bool = False,
+        omega: float = 30.0,
+    ):
+        self.omega = omega
+        self.is_linear = is_linear
+
+        # Init linear layer
+        key1, key2 = jax.random.split(key, 2)
+
+        if is_first:
+            init_val = 1 / in_features
+        else:
+            init_val = (6 / in_features) ** 0.5 / omega
+
+        self.weight = jax.random.uniform(
+            key1, (out_features, in_features), minval=-init_val, maxval=init_val
+        )
+        self.bias = jnp.zeros(out_features)
+
+    def __call__(self, x: Array) -> Array:
+        x = self.weight @ x + self.bias  # Linear layer
+        if not self.is_linear:
+            x = jnp.sin(self.omega * x)  # Sine activation
+
+        return x
+
+
+class Siren(eqx.Module):
+    layers: List[SineLayer]
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        hidden_features: int,
+        hidden_layers: int,
+        key: jax.random.KeyArray,
+        first_omega: float = 30.0,
+        hidden_omega: float = 30.0,
+    ):
+        self.layers = []
+
+        for i in range(hidden_layers + 1):
+            layer_in_features = hidden_features
+            layer_out_features = hidden_features
+            layer_omega = hidden_omega
+
+            is_first = i == 0
+            is_last = i == hidden_layers
+
+            if is_first:
+                layer_in_features = in_features
+                layer_omega = first_omega
+            if is_last:
+                layer_out_features = out_features
+
+            key, layer_key = jax.random.split(key)
+
+            self.layers.append(
+                SineLayer(
+                    in_features=layer_in_features,
+                    out_features=layer_out_features,
+                    key=layer_key,
+                    is_first=is_first,
+                    is_linear=is_last,
+                    omega=layer_omega,
+                )
+            )
+
+    def __call__(self, x: Array) -> Array:
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
