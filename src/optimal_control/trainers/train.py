@@ -107,7 +107,7 @@ def solve_optimal_control_problem(
     train_state_jaxtypes = lax.fori_loop(
         0,
         num_steps,
-        jtq.loop_tqdm(num_steps)(
+        jtq.loop_tqdm(num_steps, print_rate=10)(
             partial(_step, train_state_pytypes=train_state_pytypes)
         ),
         train_state_jaxtypes,
