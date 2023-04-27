@@ -14,10 +14,16 @@ class AbstractControl(eqx.Module):
 
 
 class LambdaControl(AbstractControl):
-    control_fun: Callable[[ArrayLike], Array]
+    control_fun: Union[
+        Callable[[ArrayLike, PyTree], Array], Callable[[ArrayLike], Array]
+    ]
+    data: Optional[PyTree] = None
 
     def __call__(self, t: ArrayLike) -> Array:
-        return self.control_fun(t)
+        if exists(self.data):
+            return self.control_fun(t, self.data)
+        else:
+            return self.control_fun(t)
 
 
 class InterpolationControl(AbstractControl):
