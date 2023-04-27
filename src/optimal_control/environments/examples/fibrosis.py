@@ -17,7 +17,7 @@ def fibrosis_ode(
 ) -> Array:
     u, inflammation_pulse = args
 
-    k = {}
+    k = [None] * 14
 
     k[0] = 0.9  # proliferation rates: lambda1=0.9/day,
     k[1] = 0.8  # lambda2=0.8/day
@@ -69,12 +69,16 @@ def fibrosis_ode(
     # Cytostatic drug
     # k[0] = 0.9 * (1 - u_at_t[1] / (u_at_t[1] + 1.0))
 
-    dx0 = y[0] * (k[0] * y[3] / (k[10] + y[3]) * (1 - y[0] / k[3]) - k[2])  # Fibrobasts
-    dx1 = y[1] * (k[1] * y[2] / (k[11] + y[2]) - k[2]) + k[12]  # Mph
-    dx2 = (
+    dx = [None] * 4
+
+    dx[0] = y[0] * (
+        k[0] * y[3] / (k[10] + y[3]) * (1 - y[0] / k[3]) - k[2]
+    )  # Fibrobasts
+    dx[1] = y[1] * (k[1] * y[2] / (k[11] + y[2]) - k[2]) + k[12]  # Mph
+    dx[2] = (
         csf1_ab_deg + k[6] * y[0] - k[8] * y[1] * y[2] / (k[11] + y[2]) - k[4] * y[2]
     )  # CSF
-    dx3 = (
+    dx[3] = (
         pdgf_ab_deg
         + k[7] * y[1]
         + k[5] * y[0]
@@ -82,7 +86,7 @@ def fibrosis_ode(
         - k[4] * y[3]
     )  # PDGF
 
-    return jnp.array([dx0, dx1, dx2, dx3])
+    return jnp.stack(dx, axis=-1)
 
 
 class FibrosisState(environments.EnvironmentState):
@@ -99,7 +103,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
                 controls.LambdaControl(lambda _: jnp.zeros(4)),
                 True,
                 diffrax.SaveAt(t1=True),
-            ).ys[0]
+            ).ys[-1]
         )
 
     def _integrate(
@@ -110,24 +114,36 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         control: controls.AbstractControl,
         inflammation_pulse: bool,
         saveat: diffrax.SaveAt,
+        early_stopping: bool = False,
     ) -> diffrax.Solution:
         terms = diffrax.ODETerm(fibrosis_ode)
+        # solver = diffrax.ImplicitEuler(
+        #    nonlinear_solver=diffrax.NewtonNonlinearSolver(rtol=1e-5, atol=1e-5)
+        # )
         solver = diffrax.Kvaerno5()
         stepsize_controller = diffrax.PIDController(
-            rtol=1e-5, atol=0.0, pcoeff=0.3, icoeff=0.3
+            rtol=1e-4, atol=1e-4, pcoeff=0.3, icoeff=0.3
         )
+
+        # def cond_fn(state, **kwargs) -> bool:
+        #    return (state.y[0] < 1e2) & (state.y[1] < 1e2)
+
+        # event = diffrax.DiscreteTerminatingEvent(cond_fn)
 
         sol = diffrax.diffeqsolve(
             terms,
             solver,
             t0,
             t1,
-            0.001,
+            0.1,
             y0,
             args=(control, inflammation_pulse),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
-            max_steps=1000000,
+            max_steps=2500,
+            adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=2500),
+            throw=False,
+            # discrete_terminating_event=event if early_stopping else None,
         )
 
         return sol
@@ -145,4 +161,5 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             control,
             False,
             diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
+            True,
         ).ys
