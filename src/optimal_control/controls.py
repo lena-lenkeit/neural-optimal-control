@@ -83,6 +83,8 @@ class InterpolationControl(AbstractControl):
             return InterpolationControl.interpolate_step(x, xp, fp)
 
     @staticmethod
+    @jax.jit
+    @partial(jax.vmap, in_axes=(None, -1, None, None), out_axes=-1)
     # Weirdly, this is much slower in the Fibrosis environment
     #   Maybe because it's a step function?
     def fast_interpolate_step(t: ArrayLike, c: Array, t0: float, t1: float) -> Array:
@@ -101,29 +103,51 @@ class InterpolationControl(AbstractControl):
         return x
 
     @staticmethod
+    @jax.jit
+    @partial(jax.vmap, in_axes=(None, -1, None, None), out_axes=-1)
     def fast_interpolate_linear(t: ArrayLike, c: Array, t0: float, t1: float) -> Array:
         # Find continuous indices
         ci = (t - t0) / (t1 - t0)
         ci = ci * c.shape[0]
 
-        # Extract left / right index and interpolant
+        # Extract left / right indices and interpolant
         li = jnp.floor(ci)
         ri = li + 1
         p = ci - li
 
-        # TODO
-        # Add rest
+        li = li.astype(jnp.int32)
+        ri = ri.astype(jnp.int32)
+
+        # Get values at indices
+        lx = c.at[li].get()
+        rx = c.at[ri].get()
+
+        # Interpolate
+        ix = p * (rx - lx) + lx
+
+        # Clip
+        ix = jnp.where((li < 0) | (ri >= c.shape[0]), 0, ix)
+
+        return ix
 
     def __call__(self, t: ArrayLike) -> Array:
+        """
         if self.method == "step":
             return InterpolationControl.fast_interpolate_step(
                 t, self.control, self.t_start, self.t_end
             )
-        else:
-            t = (t - self.t_start) / (self.t_end - self.t_start)
-            return InterpolationControl.interpolate(
-                t, jnp.linspace(0.0, 1.0, self.steps), self.control, self.method
+        elif self.method == "linear":
+            return InterpolationControl.fast_interpolate_linear(
+                t, self.control, self.t_start, self.t_end
             )
+        """
+
+        # """
+        t = (t - self.t_start) / (self.t_end - self.t_start)
+        return InterpolationControl.interpolate(
+            t, jnp.linspace(0.0, 1.0, self.steps), self.control, self.method
+        )
+        # """
 
 
 class ImplicitControl(AbstractControl):
