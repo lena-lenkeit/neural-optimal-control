@@ -133,13 +133,13 @@ class ApoptosisEnvironment(environments.AbstractEnvironment):
                 solver=solver,
                 t0=0.0,
                 t1=180.0,  # Minutes
-                dt0=0.5,
+                dt0=1.0,
                 y0=y0,
                 args=control,
                 saveat=diffrax.SaveAt(ts=jnp.linspace(0.0, 180.0, 181)),
                 # stepsize_controller=stepsize_controller,
-                max_steps=100000,
-                adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=100000),
+                max_steps=181,
+                adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=181),
             )
 
             return sol.ys
