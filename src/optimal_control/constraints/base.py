@@ -44,7 +44,7 @@ class NonNegativeConstantIntegralConstraint(AbstractConstraint):
     def transform(self, control: Array) -> Array:
         ## Via discrete softmax
 
-        return self.integral * jax.nn.softmax(control, axis=0)
+        return self.integral * jax.nn.softmax(control, axis=0) * control.shape[0]
 
     def transform_continuous(
         self, control: controls.AbstractControl
