@@ -196,9 +196,32 @@ class SineLayer(eqx.Module):
         self.weight = jax.random.uniform(
             key1, (out_features, in_features), minval=-init_val, maxval=init_val
         )
-        self.bias = jnp.zeros(out_features)
+
+        # self.weight_g = jnp.linalg.norm(weight, ord=2, axis=1, keepdims=True)
+        # self.weight_v = weight
+
+        if is_linear:
+            self.bias = jnp.zeros(out_features)
+        else:
+            # self.bias = jax.random.uniform(
+            #    key2, (out_features,), minval=-init_val, maxval=init_val
+            # )
+
+            init_val = jnp.pi / jnp.linalg.norm(
+                self.weight, ord=2, axis=1, keepdims=False
+            )
+
+            self.bias = jax.random.uniform(
+                key2, (out_features,), minval=-init_val, maxval=init_val
+            )
 
     def __call__(self, x: Array) -> Array:
+        # weight = (
+        #    self.weight_g
+        #    / jnp.linalg.norm(self.weight_v, ord=2, axis=1, keepdims=True)
+        #    * self.weight_v
+        # )
+
         x = self.weight @ x + self.bias  # Linear layer
         if not self.is_linear:
             x = jnp.sin(self.omega * x)  # Sine activation
