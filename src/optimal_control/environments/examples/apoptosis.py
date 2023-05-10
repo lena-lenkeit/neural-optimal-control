@@ -94,6 +94,7 @@ class ApoptosisEnvironment(environments.AbstractEnvironment):
     x0_filepath: str
     x0_split: Tuple[int, int]
     num_cells: int
+    full_split: bool = False
 
     def init(self) -> ApoptosisState:
         x0_mat = scipy.io.loadmat(self.x0_filepath)
@@ -105,12 +106,16 @@ class ApoptosisEnvironment(environments.AbstractEnvironment):
     def _sample_x0(
         self, state: ApoptosisState, key: jax.random.KeyArray
     ) -> Tuple[Array, Array]:
-        idx = jnp.arange(state.x0.shape[0])
-        idx = jax.random.choice(key, idx, shape=(self.num_cells,))
+        if self.full_split:
+            idx = jnp.arange(state.x0.shape[0])
+        else:
+            idx = jax.random.randint(
+                key, (self.num_cells,), minval=0, maxval=state.x0.shape[0]
+            )
 
         x0 = state.x0[idx]
         x0 = jnp.concatenate(
-            (x0[..., 0:4], x0[..., 5:6], x0[..., 4:5], jnp.zeros((self.num_cells, 11))),
+            (x0[..., [0, 1, 2, 3, 5, 4]], jnp.zeros((self.num_cells, 11))),
             axis=-1,
         )
 
