@@ -47,9 +47,49 @@ class DirectSolver(AbstractSolver):
         control: controls.AbstractControl,
         key: jax.random.KeyArray,
     ) -> Tuple[ArrayLike, controls.AbstractControl, optax.OptState]:
+        def _apply_constraint_transforms(
+            control: controls.AbstractControl,
+            _constraints: List[constraints.AbstractConstraint],
+        ) -> controls.AbstractControl:
+            # Apply transforms
+            for constraint in _constraints:
+                control = eqx.tree_at(
+                    lambda control: control.control,
+                    control,
+                    replace_fn=constraint.transform,
+                )
+
+            return control
+
         @jax.value_and_grad
-        def _reward(params, static, rewards, environment, environment_state, key):
-            control = eqx.combine(params, static)
+        def _reward(
+            params, static, rewards, environment, environment_state, _constraints, key
+        ):
+            control: controls.AbstractControl = eqx.combine(params, static)
+            # control = _apply_constraint_transforms(control, _constraints)
+
+            # Evaluate control
+            num_points = 10
+            points = jnp.linspace(
+                control.t_start, control.t_end, num=num_points, endpoint=False
+            )
+            spacing = (control.t_end - control.t_start) / num_points
+            points += spacing / 2
+
+            # Transform control
+            full_control = jax.vmap(control)(points.reshape(num_points, 1))
+            full_control = _constraints[0].transform(full_control)
+
+            # Package control
+            control = controls.InterpolationControl(
+                full_control.shape[1],
+                full_control.shape[0],
+                control.t_start,
+                control.t_end,
+                method="step",
+                control=full_control,
+            )
+
             env_seq = environment.integrate(control, environment_state, key)
             reward = -rewards(env_seq)
 
@@ -69,18 +109,18 @@ class DirectSolver(AbstractSolver):
 
             return control
 
-        control = _ensure_constraints(control, _constraints)
+        # control = _ensure_constraints(control, _constraints)
 
         params, static = eqx.partition(control, eqx.is_array)
         # key, subkey = jax.random.split(key)
         reward, grads = _reward(
-            params, static, rewards, environment, environment_state, key
+            params, static, rewards, environment, environment_state, _constraints, key
         )
 
         updates, optimizer_state = optimizer.update(grads, optimizer_state, params)
         params = optax.apply_updates(params, updates)
 
         control = eqx.combine(params, static)
-        control = _ensure_constraints(control, _constraints)
+        # control = _ensure_constraints(control, _constraints)
 
         return -reward, control, optimizer_state
