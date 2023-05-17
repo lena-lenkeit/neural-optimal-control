@@ -99,13 +99,22 @@ class ConstantIntegralConstraint(AbstractConstraint):
 
     integral: ArrayLike
 
+    def project(self, control: Array) -> Array:
+        raise NotImplementedError()
+
     def transform(self, control: Array) -> Array:
         # Evaluate integral
-        integral = jnp.sum(control, axis=0)
+        integral = jnp.mean(control, axis=0, keepdims=True)
 
         # Rescale to match target integral
         factor = self.integral / integral
         return control * factor
+
+    def penalty(self, control: Array) -> ArrayLike:
+        raise NotImplementedError()
+
+    def is_instantaneous(self) -> bool:
+        return False
 
 
 class ConvolutionConstraint(AbstractConstraint):
