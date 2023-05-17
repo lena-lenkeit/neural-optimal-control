@@ -18,6 +18,9 @@ class AbstractEnvironment(eqx.Module):
         ...
 
     def integrate(
-        self, control: controls.AbstractControl, state: EnvironmentState
-    ) -> Array:
+        self,
+        control: controls.AbstractControl,
+        state: EnvironmentState,
+        key: jax.random.KeyArray,
+    ) -> PyTree:
         ...
