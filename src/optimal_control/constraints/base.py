@@ -1,4 +1,5 @@
 import abc
+from functools import partial
 
 import diffrax
 import equinox as eqx
@@ -119,9 +120,44 @@ class ConstantIntegralConstraint(AbstractConstraint):
 
 class ConvolutionConstraint(AbstractConstraint):
     kernel: Array
+    padding_type: str
+    pad_left: int
+    pad_right: int
+
+    @staticmethod
+    def clip_convolve(
+        a: ArrayLike, v: ArrayLike, pad_left: int, pad_right: int
+    ) -> ArrayLike:
+        a = jnp.concatenate(
+            (jnp.full(pad_left, a[0]), a, jnp.full(pad_right, a[-1])), axis=0
+        )
+        c = jnp.convolve(a, v, mode="same")
+
+        return c[pad_left : len(c) - pad_right]
+
+    def project(self, control: Array) -> Array:
+        raise NotImplementedError()
 
     def transform(self, control: Array) -> Array:
-        # Convolve with kernel (implicit zero padding)
-        return jax.vmap(jnp.convolve, in_axes=(1, 1), out_axes=1)(
-            control, self.kernel, mode="same"
-        )
+        # Convolve with kernel
+
+        if self.padding_type == "zero":
+            return jax.vmap(
+                partial(jnp.convolve, mode="same"), in_axes=(1, 1), out_axes=1
+            )(control, self.kernel)
+        elif self.padding_type == "clip":
+            return jax.vmap(
+                partial(
+                    ConvolutionConstraint.clip_convolve,
+                    pad_left=self.pad_left,
+                    pad_right=self.pad_right,
+                ),
+                in_axes=(1, 1),
+                out_axes=1,
+            )(control, self.kernel)
+
+    def penalty(self, control: Array) -> ArrayLike:
+        raise NotImplementedError()
+
+    def is_instantaneous(self) -> bool:
+        return False
