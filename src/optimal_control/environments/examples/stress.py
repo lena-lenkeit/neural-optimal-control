@@ -49,6 +49,10 @@ def f_sg(p_eif2a, h_sg, k_sg):
     return p_eif2a**h_sg / (k_sg**h_sg + p_eif2a**h_sg)
 
 
+def zero_control_fn(t):
+    return jnp.zeros((1,))
+
+
 class StressState(environments.EnvironmentState):
     x0: Array
     s0: Array
@@ -56,15 +60,14 @@ class StressState(environments.EnvironmentState):
 
 
 class StressEnvironment(environments.AbstractEnvironment):
-    def init(
-        self,
-        couples_filepath: str,
-        couple_idx: int = -1,
-    ) -> StressState:
+    couples_filepath: str
+    couple_idx: int = -1
+
+    def init(self) -> StressState:
         # Load couple
-        matfile = scipy.io.loadmat(couples_filepath)
+        matfile = scipy.io.loadmat(self.couples_filepath)
         couples = matfile["couples"][0]
-        couple = couples[couple_idx]
+        couple = couples[self.couple_idx]
 
         # Import data from couple
         x0_idx = 11
@@ -86,6 +89,7 @@ class StressEnvironment(environments.AbstractEnvironment):
         s0 = self._integrate(
             control=control,
             parameters=k,
+            t0=0,
             t1=10 * 24 * 60,
             y0=x0,
             saveat=diffrax.SaveAt(t1=True),
@@ -97,6 +101,7 @@ class StressEnvironment(environments.AbstractEnvironment):
         self,
         control: controls.AbstractControl,
         parameters: Array,
+        t0: ArrayLike,
         t1: ArrayLike,
         y0: Array,
         saveat: diffrax.SaveAt,
@@ -110,13 +115,14 @@ class StressEnvironment(environments.AbstractEnvironment):
         sol = diffrax.diffeqsolve(
             terms=terms,
             solver=solver,
-            t0=0.0,
+            t0=t0,
             t1=t1,
             dt0=0.1,
             y0=y0,
             args=(parameters, control),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
+            max_steps=10000,
         )
 
         return sol
@@ -127,15 +133,29 @@ class StressEnvironment(environments.AbstractEnvironment):
         state: StressState,
         key: jax.random.KeyArray,
     ) -> Tuple[Array, Array]:
-        sol = self._integrate(
+        ts = jnp.linspace(0.0, 20 * 60, 20 * 60)
+        ts1 = ts[: ts.shape[0] // 2]
+        ts2 = ts[ts.shape[0] // 2 :]
+
+        sol1 = self._integrate(
             control=control,
             parameters=state.k,
-            t1=10 * 60,
+            t0=ts1[0],
+            t1=ts1[-1],
             y0=state.s0,
-            saveat=diffrax.SaveAt(ts=jnp.linspace(0.0, 10 * 60, 10 * 60 + 1)),
+            saveat=diffrax.SaveAt(ts=ts1),
         )
 
-        ys = sol.ys
+        sol2 = self._integrate(
+            control=controls.LambdaControl(zero_control_fn),
+            parameters=state.k,
+            t0=ts1[-1],
+            t1=ts2[-1],
+            y0=sol1.ys[-1],
+            saveat=diffrax.SaveAt(ts=ts2),
+        )
+
+        ys = jnp.concatenate((sol1.ys, sol2.ys), axis=0)
         sg = f_sg(ys[:, 1], state.k[4], state.k[5])
 
         return ys, sg
