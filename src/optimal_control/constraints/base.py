@@ -90,3 +90,29 @@ class NonNegativeConstantIntegralConstraint(AbstractConstraint):
 
     def is_instantaneous(self) -> bool:
         return False
+
+
+class ConstantIntegralConstraint(AbstractConstraint):
+    """
+    Restricts the integral of the control signal by rescaling to match a target value
+    """
+
+    integral: ArrayLike
+
+    def transform(self, control: Array) -> Array:
+        # Evaluate integral
+        integral = jnp.sum(control, axis=0)
+
+        # Rescale to match target integral
+        factor = self.integral / integral
+        return control * factor
+
+
+class ConvolutionConstraint(AbstractConstraint):
+    kernel: Array
+
+    def transform(self, control: Array) -> Array:
+        # Convolve with kernel (implicit zero padding)
+        return jax.vmap(jnp.convolve, in_axes=(1, 1), out_axes=1)(
+            control, self.kernel, mode="same"
+        )
