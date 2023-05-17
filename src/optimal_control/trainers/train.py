@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Callable, List, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 import equinox as eqx
 import jax
@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax_tqdm as jtq
 import optax
 from jax import lax
-from jaxtyping import Array, ArrayLike
+from jaxtyping import Array, ArrayLike, PyTree
 from tqdm.auto import tqdm as tq
 from tqdm.auto import trange
 
@@ -15,145 +15,100 @@ import optimal_control.constraints as constraints
 import optimal_control.controls as controls
 import optimal_control.environments as environments
 import optimal_control.solvers as solvers
+from optimal_control.utils import exists
 
 
 class TrainState(eqx.Module):
-    optimizer_state: optax.OptState
-    optimizer: optax.GradientTransformation
-    environment_state: environments.EnvironmentState
-    environment: environments.AbstractEnvironment
-    rewards: Callable[[Array], ArrayLike]
-    reward: ArrayLike
-    _constraints: List[constraints.AbstractConstraint]
     control: controls.AbstractControl
-    solver: solvers.AbstractSolver
+    solver_state: solvers.SolverState
+    reward: float
     key: jax.random.KeyArray
 
 
-def solve_optimal_control_problem(
+def init_state(
     environment: environments.AbstractEnvironment,
-    rewards: Callable[[Array], ArrayLike],
-    _constraints: List[constraints.AbstractConstraint],
     solver: solvers.AbstractSolver,
     control: controls.AbstractControl,
-    num_steps: int,
-    key: jax.random.KeyArray,
-):
-    def _init(
-        environment: environments.AbstractEnvironment,
-        solver: solvers.AbstractSolver,
-        control: controls.AbstractControl,
-        optimizer: optax.GradientTransformation,
-    ) -> Tuple[environments.EnvironmentState, optax.OptState]:
-        environment_state = environment.init()
-        optimizer_state = solver.init(optimizer, control)
+) -> Tuple[environments.EnvironmentState, solvers.SolverState]:
+    environment_state = environment.init()
+    solver_state = solver.init(control)
 
-        return environment_state, optimizer_state
+    return environment_state, solver_state
 
-    def _step(
-        i: int, train_state_jaxtypes: TrainState, train_state_pytypes: TrainState
-    ) -> TrainState:
-        train_state = eqx.combine(train_state_jaxtypes, train_state_pytypes)
 
-        key, subkey = jax.random.split(train_state.key)
-        reward, control, optimizer_state = solver.step(
-            train_state.optimizer_state,
-            train_state.optimizer,
-            train_state.environment_state,
-            train_state.environment,
-            train_state.rewards,
-            train_state._constraints,
-            train_state.control,
-            subkey,
-        )
+def step_state(
+    i: int,
+    train_state_jaxtypes: TrainState,
+    train_state_pytypes: TrainState,
+    solver: solvers.AbstractSolver,
+    environment: environments.AbstractEnvironment,
+    environment_state: environments.EnvironmentState,
+    reward_fn: Callable[[PyTree], float],
+    constraint_chain: List[constraints.AbstractConstraint],
+) -> TrainState:
+    train_state: TrainState = eqx.combine(train_state_jaxtypes, train_state_pytypes)
 
-        train_state = TrainState(
-            optimizer_state=optimizer_state,
-            optimizer=train_state.optimizer,
-            environment_state=train_state.environment_state,
-            environment=train_state.environment,
-            rewards=train_state.rewards,
-            reward=reward,
-            _constraints=train_state._constraints,
-            control=control,
-            solver=train_state.solver,
-            key=key,
-        )
-
-        train_state_jaxtypes, train_state_pytypes = eqx.partition(
-            train_state, eqx.is_array
-        )
-        # print(train_state_jaxtypes, train_state_pytypes)
-        return train_state_jaxtypes
-
-    optimizer = optax.adam(learning_rate=1e-1)
-    environment_state, optimizer_state = _init(environment, solver, control, optimizer)
+    key, subkey = jax.random.split(train_state.key)
+    solver_state, control, reward = solver.step(
+        state=train_state.solver_state,
+        environment=environment,
+        environment_state=environment_state,
+        reward_fn=reward_fn,
+        constraint_chain=constraint_chain,
+        control=train_state.control,
+        key=subkey,
+    )
 
     train_state = TrainState(
-        optimizer_state=optimizer_state,
-        optimizer=optimizer,
-        environment_state=environment_state,
-        environment=environment,
-        rewards=rewards,
-        reward=jnp.float64(0.0),
-        _constraints=_constraints,
-        control=control,
-        solver=solver,
-        key=key,
+        control=control, solver_state=solver_state, reward=reward, key=key
+    )
+
+    train_state_jaxtypes = eqx.filter(train_state, eqx.is_array)
+    return train_state_jaxtypes
+
+
+def solve_optimal_control_problem(
+    num_train_steps: int,
+    environment: environments.AbstractEnvironment,
+    reward_fn: Callable[[Array], ArrayLike],
+    constraint_chain: List[constraints.AbstractConstraint],
+    solver: solvers.AbstractSolver,
+    control: controls.AbstractControl,
+    key: jax.random.KeyArray,
+    pbar_interval: Optional[int] = None,
+) -> Tuple[float, controls.AbstractControl]:
+    # Initialize states
+    environment_state, solver_state = init_state(
+        environment=environment, solver=solver, control=control
+    )
+
+    train_state = TrainState(
+        control=control, solver_state=solver_state, reward=jnp.float_(0.0), key=key
     )
 
     train_state_jaxtypes, train_state_pytypes = eqx.partition(train_state, eqx.is_array)
-    # print(train_state_jaxtypes, train_state_pytypes)
-    train_state_jaxtypes = lax.fori_loop(
-        0,
-        num_steps,
-        jtq.loop_tqdm(num_steps, print_rate=10)(
-            partial(_step, train_state_pytypes=train_state_pytypes)
-        ),
-        train_state_jaxtypes,
+
+    # Build loop step function
+    step_fn = partial(
+        step_state,
+        train_state_pytypes=train_state_pytypes,
+        solver=solver,
+        environment=environment,
+        environment_state=environment_state,
+        reward_fn=reward_fn,
+        constraint_chain=constraint_chain,
     )
+
+    if exists(pbar_interval):
+        step_fn = jtq.loop_tqdm(n=num_train_steps, print_rate=pbar_interval)(step_fn)
+
+    # Run training loop
+    train_state_jaxtypes = lax.fori_loop(
+        lower=0,
+        upper=num_train_steps,
+        body_fun=step_fn,
+        init_val=train_state_jaxtypes,
+    )
+
     train_state = eqx.combine(train_state_jaxtypes, train_state_pytypes)
-
     return train_state.reward, train_state.control
-
-    """@eqx.filter_jit
-    def _step(
-        optimizer_state: optax.OptState,
-        optimizer: optax.GradientTransformation,
-        environment_state: environments.EnvironmentState,
-        environment: environments.AbstractEnvironment,
-        rewards: Callable[[Array], ArrayLike],
-        _constraints: List[constraints.AbstractConstraint],
-        control: controls.AbstractControl,
-        solver: solvers.AbstractSolver,
-    ) -> Tuple[ArrayLike, controls.AbstractControl, optax.OptState]:
-        return solver.step(
-            optimizer_state,
-            optimizer,
-            environment_state,
-            environment,
-            rewards,
-            _constraints,
-            control,
-        )
-
-    optimizer = optax.adam(learning_rate=1e-2)
-    environment_state, optimizer_state = _init(environment, solver, control, optimizer)
-
-    pbar = trange(num_steps)
-    for _ in pbar:
-        reward, control, optimizer_state = _step(
-            optimizer_state,
-            optimizer,
-            environment_state,
-            environment,
-            rewards,
-            _constraints,
-            control,
-            solver,
-        )
-
-        pbar.set_postfix({"reward": reward})
-    
-    return reward, control
-    """
