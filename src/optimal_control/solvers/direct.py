@@ -99,6 +99,10 @@ def evaluate_reward(
     return reward
 
 
+def invert(x):
+    return -x
+
+
 class DirectSolverState(SolverState):
     optimizer_state: optax.OptState
 
@@ -123,6 +127,7 @@ class DirectSolver(AbstractSolver):
         control: controls.AbstractControl,
         key: jax.random.KeyArray,
     ) -> Tuple[DirectSolverState, controls.AbstractControl, float]:
+        # Get reward & gradients w.r.t. control
         grad_fn = eqx.filter_value_and_grad(evaluate_reward)
 
         reward, control_grads = grad_fn(
@@ -135,11 +140,16 @@ class DirectSolver(AbstractSolver):
             key=key,
         )
 
+        # Apply optimizer transformations
         control_params, control_static = eqx.partition(control, eqx.is_array)
         updates, optimizer_state = self.optimizer.update(
             control_grads, state.optimizer_state, params=control_params
         )
 
+        # Flip gradient sign, to maximize the reward
+        updates = jax.tree_map(invert, updates)
+
+        # Update control parameters
         control_params = optax.apply_updates(control_params, updates)
         control = eqx.combine(control_params, control_static)
 
