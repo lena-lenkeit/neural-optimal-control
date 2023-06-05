@@ -1,10 +1,10 @@
 from functools import partial
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike, PyTree
+from jaxtyping import Array, ArrayLike, PRNGKeyArray, PyTree
 
 from optimal_control.utils import exists
 
@@ -131,7 +131,7 @@ class InterpolationControl(AbstractControl):
         return ix
 
     def __call__(self, t: ArrayLike) -> Array:
-        """
+        # """
         if self.method == "step":
             return InterpolationControl.fast_interpolate_step(
                 t, self.control, self.t_start, self.t_end
@@ -140,14 +140,14 @@ class InterpolationControl(AbstractControl):
             return InterpolationControl.fast_interpolate_linear(
                 t, self.control, self.t_start, self.t_end
             )
-        """
-
         # """
+
+        """
         t = (t - self.t_start) / (self.t_end - self.t_start)
         return InterpolationControl.interpolate(
             t, jnp.linspace(0.0, 1.0, self.steps), self.control, self.method
         )
-        # """
+        """
 
 
 class ImplicitControl(AbstractControl):
@@ -169,6 +169,8 @@ class ImplicitControl(AbstractControl):
 
 class SineLayer(eqx.Module):
     weight: Array
+    # weight_v: Array
+    # weight_g: Array
     bias: Array
     omega: float
     is_linear: bool
@@ -276,3 +278,183 @@ class Siren(eqx.Module):
             x = layer(x)
 
         return x
+
+
+class ActiveControl(AbstractControl):
+    control: eqx.Module
+    t_start: float
+    t_end: float
+
+
+class RNN(eqx.Module):
+    in_proj: eqx.nn.Linear
+    out_proj: eqx.nn.Linear
+    cells: eqx.Module
+    cell_type: str
+    initial_state: PyTree
+
+    def __init__(
+        self,
+        in_width: int,
+        out_width: int,
+        rnn_width: int,
+        rnn_layers: int,
+        cell_type: str,
+        key: PRNGKeyArray,
+    ):
+        key, key1, key2 = jax.random.split(key, num=3)
+        self.in_proj = eqx.nn.Linear(in_width, rnn_width, key=key1)
+        self.out_proj = eqx.nn.Linear(rnn_width, out_width, use_bias=False, key=key2)
+
+        self.cell_type = cell_type
+        cell_cls = {"gru": eqx.nn.GRUCell, "lstm": eqx.nn.LSTMCell}[cell_type]
+
+        keys = jax.random.split(key, num=rnn_layers)
+        make_cells = lambda k: cell_cls(
+            input_size=rnn_width, hidden_size=rnn_width, key=k
+        )
+        self.cells = eqx.filter_vmap(make_cells)(keys)
+
+        if cell_type == "lstm":
+            self.initial_state = (
+                jnp.zeros((rnn_layers, rnn_width)),
+                jnp.zeros((rnn_layers, rnn_width)),
+            )
+        elif cell_type == "gru":
+            self.initial_state = jnp.zeros((rnn_layers, rnn_width))
+
+    def __call__(self, inputs: Array, states: PyTree) -> Tuple[Array, PyTree]:
+        x = self.in_proj(inputs)
+
+        # Scan over stack of RNN cells
+        cells_jaxtypes, cell_pytypes = eqx.partition(self.cells, eqx.is_array)
+
+        def f(carry: Array, x: Tuple[eqx.Module, PyTree]) -> Tuple[Array, PyTree]:
+            input = carry
+            cell_jaxtypes, state = x
+
+            cell = eqx.combine(cell_jaxtypes, cell_pytypes)
+            next_state = cell(input, state)
+
+            if self.cell_type == "lstm":
+                output, _ = next_state  # LSTM-like
+            elif self.cell_type == "gru":
+                output = next_state  # GRU-like
+
+            return output, next_state
+
+        x, next_states = jax.lax.scan(f, init=x, xs=(cells_jaxtypes, states))
+
+        x = self.out_proj(x)
+        return x, next_states
+
+
+class ModularControl(eqx.Module):
+    main: eqx.Module
+    encoder: Optional[eqx.Module] = None
+    decoder: Optional[eqx.Module] = None
+    num_controls: int
+    num_latents: Optional[int] = None
+    num_states: Optional[int] = None
+    mode: str
+
+    def __init__(
+        self,
+        hidden_width: int,
+        hidden_layers: int,
+        num_controls: int,
+        num_latents: Optional[int],
+        num_states: Optional[int],
+        rnn_cell_type: Optional[str],
+        mode: str = "cde-rnn",
+        *,
+        key: PRNGKeyArray
+    ):
+        self.num_controls = num_controls
+        self.num_latents = num_latents
+        self.num_states = num_states
+        self.mode = mode
+
+        if mode == "cde-rnn":
+            keys = jax.random.split(key, num=3)
+            self.main = eqx.nn.MLP(
+                in_size=num_latents,
+                out_size=(num_latents * (1 + num_states)),
+                width_size=hidden_width,
+                depth=hidden_layers,
+                activation=jax.nn.silu,
+                final_activation=jax.nn.tanh,
+                use_final_bias=False,
+                key=keys[0],
+            )
+            self.encoder = eqx.nn.MLP(
+                in_size=(1 + num_states),
+                out_size=num_latents,
+                width_size=hidden_width,
+                depth=hidden_layers,
+                activation=jax.nn.silu,
+                use_final_bias=False,
+                key=keys[1],
+            )
+            self.decoder = eqx.nn.MLP(
+                in_size=num_latents,
+                out_size=num_controls,
+                width_size=hidden_width,
+                depth=hidden_layers,
+                activation=jax.nn.silu,
+                final_activation=jax.nn.tanh,
+                use_final_bias=False,
+                key=keys[2],
+            )
+        if mode == "step-rnn":
+            self.main = RNN(
+                in_width=num_states,
+                out_width=num_controls,
+                rnn_width=hidden_width,
+                rnn_layers=hidden_layers,
+                cell_type=rnn_cell_type,
+                key=key,
+            )
+
+        elif mode == "derivative":
+            keys = jax.random.split(key, num=2)
+            self.main = eqx.nn.MLP(
+                in_size=num_states,
+                out_size=num_controls,
+                width_size=hidden_width,
+                depth=hidden_layers,
+                activation=jax.nn.silu,
+                use_final_bias=False,
+                key=keys[0],
+            )
+            self.encoder = eqx.nn.MLP(
+                in_size=(1 + num_states),
+                out_size=num_controls,
+                width_size=hidden_width,
+                depth=hidden_layers,
+                activation=jax.nn.silu,
+                use_final_bias=False,
+                key=keys[1],
+            )
+
+    def __call__(
+        self, inputs: Array, states: Optional[PyTree] = None
+    ) -> Union[Array, Tuple[Array, PyTree]]:
+        if self.mode == "cde-rnn":
+            dzdX: Array = self.main(inputs)
+            dzdX = dzdX.reshape(self.num_latents, 1 + self.num_states)
+
+            return dzdX
+        elif self.mode == "step-rnn":
+            return self.main(inputs, states)
+        else:
+            return self.main(inputs)
+
+    def encode_controls(self, X0: Array) -> Array:
+        return self.encoder(X0)
+
+    def encode_latents(self, z0: Array) -> Array:
+        return self.encoder(z0)
+
+    def decode_latents(self, z: Array) -> Array:
+        return self.decoder(z)
