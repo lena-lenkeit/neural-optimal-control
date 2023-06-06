@@ -232,10 +232,13 @@ def _eval_traj_stepping_nested(
     return full_diffeq_solution
 
 
+# TODO: Adapt signature to match diffrax
 @eqx.filter_jit
-def eval_traj_stepping(
-    control: eqx.Module,
+def diffeqsolve_drnn_controller(
     ode: Callable[[Scalar, PyTree, PyTree, PyTree], PyTree],
+    solver: diffrax.AbstractSolver,
+    stepsize_controller: diffrax.AbstractStepSizeController,
+    control: eqx.Module,
     trajectory_t1: float,
     init_t0: float,
     init_dt0: float,
@@ -243,19 +246,16 @@ def eval_traj_stepping(
     step_dt: float,
     max_steps: int = 4096,
 ) -> Tuple[Array, Array, Array, Array]:
+    # MAYBE TODO: Use internals from diffrax and just change adjoint.loop
+
     ## New version with manual stepping
 
     # Params
-    control_steps = max_steps
-    # control_steps = int(math.ceil(trajectory_t1 / step_dt))
+    buffer_len = max_steps
+    # buffer_len = int(math.ceil(trajectory_t1 / step_dt))
 
     term = diffrax.ODETerm(lambda t, y, args: ode(t, y, args[0], args[1]))
-    solver = diffrax.Kvaerno5(
-        nonlinear_solver=diffrax.NewtonNonlinearSolver(rtol=1e-5, atol=1e-5)
-    )
-    stepsize_controller: diffrax.PIDController = diffrax.PIDController(
-        rtol=1e-5, atol=1e-5, pcoeff=0.3, icoeff=0.3
-    )
+    solver = stepsize_controller.wrap_solver(solver)
 
     # Initialize solver components
     init_control_state = control.main.initial_state
@@ -276,10 +276,10 @@ def eval_traj_stepping(
         term, init_t1, trajectory_t1, init_y0, (init_control_value, None)
     )
 
-    valid_buffer = jnp.zeros((control_steps, 1))
-    time_buffer = jnp.zeros((control_steps, 1))
-    solution_buffer = jnp.zeros((control_steps, init_y0.shape[-1]))
-    control_buffer = jnp.zeros((control_steps, init_control_value.shape[-1]))
+    valid_buffer = jnp.zeros((buffer_len, 1))
+    time_buffer = jnp.zeros((buffer_len, 1))
+    solution_buffer = jnp.zeros((buffer_len, init_y0.shape[-1]))
+    control_buffer = jnp.zeros((buffer_len, init_control_value.shape[-1]))
 
     valid_buffer = valid_buffer.at[0].set(True)
     time_buffer = time_buffer.at[0].set(init_t0)
@@ -287,10 +287,6 @@ def eval_traj_stepping(
     control_buffer = control_buffer.at[0].set(init_control_value)
 
     # Integrate ODE
-    _Carry = Tuple[
-        float, float, PyTree, float, PyTree, int, PyTree, PyTree, PyTree, bool
-    ]
-
     class Carry(eqx.Module):
         t0: float
         t1: float
@@ -350,22 +346,41 @@ def eval_traj_stepping(
             carry.control_state,
         )
 
-        # Write solution state into buffers, if boundary was crossed
-        buffer_idx = next_control_steps
-        valid_buffer, time_buffer, solution_buffer, control_buffer = jax.lax.cond(
-            crossed_boundary,
-            lambda buffer_idx, time_values, solution_values, control_values, valid_buffer, time_buffer, solution_buffer, control_buffer: (
+        def _update_buffers(
+            buffer_idx: int,
+            time_values: Array,
+            solution_values: Array,
+            control_values: Array,
+            valid_buffer: Array,
+            time_buffer: Array,
+            solution_buffer: Array,
+            control_buffer: Array,
+        ) -> Tuple[Array, Array, Array]:
+            return (
                 valid_buffer.at[buffer_idx].set(True),
                 time_buffer.at[buffer_idx].set(time_values),
                 solution_buffer.at[buffer_idx].set(solution_values),
                 control_buffer.at[buffer_idx].set(control_values),
-            ),
-            lambda buffer_idx, time_values, solution_values, control_values, valid_buffer, time_buffer, solution_buffer, control_buffer: (
-                valid_buffer,
-                time_buffer,
-                solution_buffer,
-                control_buffer,
-            ),
+            )
+
+        def _identity_buffers(
+            buffer_idx: int,
+            time_values: Array,
+            solution_values: Array,
+            control_values: Array,
+            valid_buffer: Array,
+            time_buffer: Array,
+            solution_buffer: Array,
+            control_buffer: Array,
+        ) -> Tuple[Array, Array, Array]:
+            return (valid_buffer, time_buffer, solution_buffer, control_buffer)
+
+        # Write solution state into buffers, if boundary was crossed
+        buffer_idx = next_control_steps
+        valid_buffer, time_buffer, solution_buffer, control_buffer = jax.lax.cond(
+            crossed_boundary,
+            _update_buffers,
+            _identity_buffers,
             buffer_idx,
             carry.t0,
             carry.y0,
