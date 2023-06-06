@@ -93,6 +93,31 @@ def with_cde_rnn_control(
     return wrapper_fn
 
 
+def with_extra_term(
+    f: Callable[[Scalar, PyTree, PyTree, PyTree], PyTree],
+    g: Callable[[Scalar, PyTree, PyTree, PyTree, PyTree], PyTree],
+    num_g_states: int,
+    g0: PyTree,
+) -> Callable[[Scalar, PyTree, PyTree, PyTree], PyTree]:
+    @functools.wraps(f)
+    def wrapper(t: Scalar, y: PyTree, u: PyTree, args: PyTree) -> PyTree:
+        fy = y[..., :-num_g_states]
+        gy = y[..., -num_g_states:]
+
+        df_dt = f(t, fy, u, args)
+        dg_dt = f(t, gy, u, args)
+
+        return jnp.concatenate((df_dt, dg_dt), axis=-1)
+
+    def modify_initial_state(control: PyTree, t0: Scalar, y0: Array) -> Array:
+        return jnp.concatenate((y0, g0), axis=-1)
+
+    wrapper_fn = wrapper
+    wrapper_fn._modify_initial_state = modify_initial_state
+
+    return wrapper_fn
+
+
 @eqx.filter_jit
 def _eval_traj_stepping_nested(
     control: eqx.Module,
