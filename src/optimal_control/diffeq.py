@@ -10,18 +10,27 @@ from jaxtyping import Array, PyTree, Scalar
 
 
 def with_control(
-    f: Callable[[Scalar, PyTree, PyTree, PyTree], PyTree]
+    f: Callable[[Scalar, PyTree, PyTree, PyTree], PyTree],
+    time: bool = False,
+    state: bool = False,
 ) -> Callable[[Scalar, PyTree, PyTree], PyTree]:
     @functools.wraps(f)
     def wrapper(t: Scalar, y: PyTree, args: PyTree) -> PyTree:
         control, f_args = args
-        u = control(y)
+
+        if time:
+            u = control(t)
+        if state:
+            u = control(y)
 
         dy = f(t, y, u, f_args)
         return dy
 
     def modify_initial_state(control: PyTree, t0: Scalar, y0: Array) -> Array:
-        return y0
+        if hasattr(f, "_modify_initial_state"):
+            return f._modify_initial_state(control, t0, y0)
+        else:
+            return y0
 
     wrapper_fn = wrapper
     wrapper_fn._modify_initial_state = modify_initial_state
@@ -74,17 +83,22 @@ def with_cde_rnn_control(
         dt = jnp.ones(1)
         dX = jnp.concatenate((dt, f_dy), axis=-1)
 
-        c_dzdX = control(c_z)
-        c_dz = c_dzdX @ dX
+        # c_dzdX = control(c_z)
+        # c_dz = c_dzdX @ dX
+
+        c_dz = control(c_z, dX, f_y)
 
         dy = jnp.concatenate((f_dy, c_dz), axis=-1)
         return dy
 
     def modify_initial_state(control: PyTree, t0: Scalar, y0: Array) -> Array:
-        X0 = jnp.concatenate((t0, y0), axis=-1)
+        if hasattr(f, "_modify_initial_state"):
+            y0 = f._modify_initial_state(control, t0, y0)
+
+        X0 = jnp.concatenate((jnp.atleast_1d(t0), y0), axis=-1)
         z0 = control.encode_latents(X0)
 
-        y0 = jnp.concatenate((z0, y0), axis=-1)
+        y0 = jnp.concatenate((y0, z0), axis=-1)
         return y0
 
     wrapper_fn = wrapper
@@ -105,7 +119,7 @@ def with_extra_term(
         gy = y[..., -num_g_states:]
 
         df_dt = f(t, fy, u, args)
-        dg_dt = f(t, gy, u, args)
+        dg_dt = g(t, fy, gy, u, args)
 
         return jnp.concatenate((df_dt, dg_dt), axis=-1)
 
