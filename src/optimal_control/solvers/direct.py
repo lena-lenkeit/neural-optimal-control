@@ -27,6 +27,7 @@ class DirectSolverState(solvers.SolverState):
 class DirectSolver(solvers.AbstractSolver):
     optimizer: optax.GradientTransformation
     num_control_points: int
+    ignore_nans: bool = False
 
     def init(self, control: controls.AbstractControl) -> DirectSolverState:
         control_params = eqx.filter(control, eqx.is_array)
@@ -56,6 +57,12 @@ class DirectSolver(solvers.AbstractSolver):
             num_control_points=self.num_control_points,
             key=key,
         )
+
+        if self.ignore_nans:
+            control_grads = jax.tree_map(
+                lambda x: jnp.where(jnp.isnan(x), jnp.zeros_like(x), x),
+                control_grads,
+            )
 
         # Apply optimizer transformations
         control_params, control_static = eqx.partition(control, eqx.is_array)
