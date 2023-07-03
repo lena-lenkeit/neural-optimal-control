@@ -37,7 +37,7 @@ class NonNegativeConstantIntegralConstraint(AbstractConstraint):
         control = jnp.where(control < self.eps, self.eps, control)
 
         # Normalize to constant integral by rescaling
-        control_integral = jnp.sum(control, axis=0)
+        control_integral = jnp.mean(control, axis=0)
         control = (control / control_integral) * self.integral
 
         return control
