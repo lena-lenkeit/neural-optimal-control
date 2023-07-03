@@ -1,8 +1,10 @@
 """Utilities for loading ODE models defined in SBML into jax-compatible constructs"""
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Literal, Union, overload
 
 import libsbml
+import rich.console
+import rich.table
 
 
 def species_to_dict(species_list: libsbml.ListOfSpecies) -> Dict[str, float]:
@@ -135,6 +137,7 @@ def eval_ast_node(node: libsbml.ASTNode, context: Dict[str, Any]) -> float:
             return fn_ret_val
 
         else:
+            # TODO: Add all AST_FUNCTION_... nodes
             functions = {libsbml.AST_FUNCTION_POWER: lambda a, b: a**b}
 
             fn = functions[node.getType()]
@@ -165,7 +168,25 @@ def ast_to_lambda(node: libsbml.ASTNode) -> Callable[[Dict[str, Any]], float]:
     return ast_fn
 
 
-def model_to_lambda(model: libsbml.Model) -> Callable[[float, dict, dict], dict]:
+@overload
+def model_to_lambda(
+    model: libsbml.Model, control_mapping: Literal["extra"]
+) -> Callable[[float, dict, dict, dict], dict]:
+    ...
+
+
+@overload
+def model_to_lambda(
+    model: libsbml.Model, control_mapping: Literal["args"]
+) -> Callable[[float, dict, dict], dict]:
+    ...
+
+
+def model_to_lambda(
+    model: libsbml.Model, control_mapping: Literal["extra", "args"] = "extra"
+) -> Union[
+    Callable[[float, dict, dict, dict], dict], Callable[[float, dict, dict], dict]
+]:
     """Turns a libsbml.Model into a jax-/diffrax-compatible ODE Term"""
 
     # Load model-global context
@@ -215,4 +236,108 @@ def model_to_lambda(model: libsbml.Model) -> Callable[[float, dict, dict], dict]
 
         return dy_dt
 
-    return ode_fn
+    if control_mapping == "extra":
+
+        def extra_ode_fn(t: float, y: dict, u: dict, args: dict) -> dict:
+            overrides = {}
+            overrides.update(args)
+            overrides.update(u)
+
+            return ode_fn(t, y, overrides)
+
+        return extra_ode_fn
+    elif control_mapping == "args":
+        return ode_fn
+
+
+def pprint_model(
+    model_or_filepath: Union[libsbml.Model, str],
+    console: rich.console.Console = rich.console.Console(),
+):
+    """Pretty-prints a libsbml.Model"""
+
+    model: libsbml.Model
+    if isinstance(model_or_filepath, libsbml.Model):
+        model = model_or_filepath
+    else:
+        model = libsbml.readSBMLFromFile(model_or_filepath).getModel()
+
+    # Species
+    table = rich.table.Table(title="Species")
+    table.add_column("Species")
+    table.add_column("ID")
+    table.add_column("Initial Concentration")
+
+    species: libsbml.Species
+    for species in model.getListOfSpecies():
+        table.add_row(
+            species.getName(),
+            species.getIdAttribute(),
+            f"{species.getInitialConcentration()}",
+        )
+
+    console.print(table)
+
+    # Parameters
+    table = rich.table.Table(title="Parameters")
+    table.add_column("Parameter")
+    table.add_column("ID")
+    table.add_column("Value")
+
+    parameter: libsbml.Parameter
+    for parameter in model.getListOfParameters():
+        table.add_row(
+            parameter.getName(),
+            parameter.getIdAttribute(),
+            f"{parameter.getValue()}",
+        )
+
+    console.print(table)
+
+    # Reactions
+    table = rich.table.Table(title="Reactions")
+    table.add_column("Reaction")
+    table.add_column("ID")
+    table.add_column("Kinetic Law")
+
+    reaction: libsbml.Reaction
+    for reaction in model.getListOfReactions():
+        table.add_row(
+            reaction.getName(),
+            reaction.getIdAttribute(),
+            f"{libsbml.formulaToL3String(reaction.getKineticLaw().getMath())}",
+        )
+
+    console.print(table)
+
+    # Function Definitions
+    table = rich.table.Table(title="Function Definitions")
+    table.add_column("Function")
+    table.add_column("ID")
+    table.add_column("Definition")
+
+    fdef: libsbml.FunctionDefinition
+    for fdef in model.getListOfFunctionDefinitions():
+        table.add_row(
+            fdef.getName(),
+            fdef.getIdAttribute(),
+            f"{libsbml.formulaToL3String(fdef.getMath())}",
+        )
+
+    console.print(table)
+
+    # Compartments
+    table = rich.table.Table(title="Compartments")
+    table.add_column("Compartment")
+    table.add_column("ID")
+    table.add_column("Size")
+
+    compartment: libsbml.Compartment
+    for compartment in model.getListOfCompartments():
+        table.add_row(
+            compartment.getName(),
+            compartment.getIdAttribute(),
+            f"{compartment.getSize()}",
+        )
+
+    console.print(table)
