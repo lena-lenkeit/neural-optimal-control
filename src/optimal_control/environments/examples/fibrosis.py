@@ -86,6 +86,13 @@ def fibrosis_ode(
         - k[4] * y[3]
     )  # PDGF
 
+    # cells = jnp.stack(y[:2], axis=-1)
+    # cells = jnp.clip(cells, a_min=1e2, a_max=None)
+    # cells_fibrosis = jnp.asarray([4.84813927e05, 6.45000129e05])
+
+    # dx[4] = jnp.mean(jnp.log(cells_fibrosis) - jnp.log(cells))
+    # dx[4] = -jnp.mean(jnp.log(jnp.clip(cells, a_min=1e2, a_max=None)))
+
     return jnp.stack(dx, axis=-1)
 
 
@@ -100,10 +107,12 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
                 0.0,
                 300.0,
                 jnp.asarray([1.0, 1.0, 0.0, 0.0]),
-                controls.LambdaControl(lambda _: jnp.zeros(4)),
+                controls.LambdaControl(lambda _: jnp.zeros(2)),
                 True,
                 diffrax.SaveAt(t1=True),
-            ).ys[-1]
+                max_steps=100000,
+                throw=True,
+            ).ys[-1, :4]
         )
 
     def _integrate(
@@ -115,6 +124,8 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         inflammation_pulse: bool,
         saveat: diffrax.SaveAt,
         early_stopping: bool = False,
+        max_steps: int = 1000,
+        throw: bool = False,
     ) -> diffrax.Solution:
         terms = diffrax.ODETerm(fibrosis_ode)
         # solver = diffrax.ImplicitEuler(
@@ -122,7 +133,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         # )
         solver = diffrax.Kvaerno5()
         stepsize_controller = diffrax.PIDController(
-            rtol=1e-4, atol=1e-4, pcoeff=0.3, icoeff=0.3
+            rtol=1e-5, atol=1e-5, pcoeff=0.3, icoeff=0.3
         )
 
         # def cond_fn(state, **kwargs) -> bool:
@@ -131,18 +142,19 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         # event = diffrax.DiscreteTerminatingEvent(cond_fn)
 
         sol = diffrax.diffeqsolve(
-            terms,
-            solver,
-            t0,
-            t1,
-            0.1,
-            y0,
+            terms=terms,
+            solver=solver,
+            t0=t0,
+            t1=t1,
+            dt0=0.1,
+            y0=jnp.concatenate((y0, jnp.zeros_like(y0[:1])), axis=0),
+            # y0=y0,
             args=(control, inflammation_pulse),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
-            max_steps=2500,
-            adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=2500),
-            throw=False,
+            max_steps=max_steps,
+            adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=max_steps),
+            throw=throw,
             # discrete_terminating_event=event if early_stopping else None,
         )
 
@@ -154,12 +166,17 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         state: FibrosisState,
         key: jax.random.KeyArray,
     ) -> Array:
-        return self._integrate(
+        sol = self._integrate(
             0.0,
             200.0,
             state.y0,
             control,
             False,
-            diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
+            # diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
+            diffrax.SaveAt(t1=True),
             True,
-        ).ys
+            max_steps=1000,
+            throw=False,
+        )
+
+        return sol.ys  # , sol.ts
