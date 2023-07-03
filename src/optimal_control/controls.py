@@ -89,6 +89,8 @@ class InterpolationControl(AbstractControl):
     #   Maybe because it's a step function?
     def fast_interpolate_step(t: ArrayLike, c: Array, t0: float, t1: float) -> Array:
         # Find indicies into array
+        t = jnp.atleast_1d(t)[0]
+
         i = (t - t0) / (t1 - t0)
         i = jnp.floor(i * c.shape[0]).astype(jnp.int32)
 
@@ -156,6 +158,8 @@ class ImplicitControl(AbstractControl):
     t_end: float
 
     def __call__(self, t: ArrayLike) -> Array:
+        t = jnp.atleast_1d(t)
+
         # Rescale t to [-1, 1]
         t = (t - self.t_start) / (self.t_end - self.t_start)
         t = t * 2 - 1
