@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax_tqdm as jtq
 import optax
 from jax import lax
-from jaxtyping import Array, ArrayLike, PyTree
+from jaxtyping import Array, ArrayLike, PyTree, Scalar
 from tqdm.auto import tqdm as tq
 from tqdm.auto import trange
 
@@ -70,7 +70,7 @@ def step_state(
 def solve_optimal_control_problem(
     num_train_steps: int,
     environment: environments.AbstractEnvironment,
-    reward_fn: Callable[[Array], ArrayLike],
+    reward_fn: Callable[[PyTree], float],
     constraint_chain: List[constraints.AbstractConstraint],
     solver: solvers.AbstractSolver,
     control: controls.AbstractControl,
