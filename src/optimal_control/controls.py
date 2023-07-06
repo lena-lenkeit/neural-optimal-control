@@ -105,7 +105,7 @@ class AbstractCDERNNControl(AbstractContinuousControl):
         **kwargs,
     ) -> ControlOutput:
         # Construct the path derivative
-        dy_dt = self.map_derivative_to_latents(dy_dt)
+        dy_dt = self.get_path_derivative(system_y, dy_dt)
         dX_dt = jnp.concatenate((jnp.ones(1), dy_dt))
 
         # Get the latent derivatives
@@ -129,17 +129,17 @@ class AbstractCDERNNControl(AbstractContinuousControl):
         ...
 
     @abc.abstractmethod
-    def map_derivative_to_latents(self, dy_dt: PyTree) -> Float[Array, "latents"]:
+    def get_path_derivative(self, y: PyTree, dy_dt: PyTree) -> Float[Array, "latents"]:
         ...
 
     @abc.abstractmethod
-    def map_state_to_latents(
+    def get_initial_latents(
         self, t0: Scalar, y0: PyTree, args: PyTree
     ) -> Float[Array, "latents"]:
         ...
 
     def extend_y0(self, t0: Scalar, y0: PyTree, args: PyTree) -> Array:
-        return self.map_state_to_latents(t0, y0, args)
+        return self.get_initial_latents(t0, y0, args)
 
 
 class ODERNNControl(AbstractDiscreteControl):
