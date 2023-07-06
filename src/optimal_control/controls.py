@@ -10,10 +10,14 @@ from jaxtyping import Array, ArrayLike, Float, PRNGKeyArray, PyTree, Scalar
 from optimal_control.utils import exists
 
 
+class MemoryOutput(eqx.Module):
+    derivative: Optional[PyTree] = None
+    next: Optional[PyTree] = None
+
+
 class ControlOutput(eqx.Module):
-    control_values: PyTree
-    dc_dt: Optional[PyTree] = None
-    next_memory: Optional[PyTree] = None
+    values: PyTree
+    memory: Optional[MemoryOutput] = None
 
 
 class AbstractControl(eqx.Module):
@@ -32,7 +36,7 @@ class AbstractContinuousControl(AbstractControl):
         args: Optional[PyTree] = None,
         dy_dt: Optional[PyTree] = None,
         **kwargs,
-    ) -> Tuple[PyTree, PyTree]:
+    ) -> ControlOutput:
         ...
 
     @abc.abstractmethod
@@ -52,7 +56,7 @@ class AbstractDiscreteControl(AbstractControl):
         dy_dt: Optional[PyTree] = None,
         memory: Optional[PyTree] = None,
         **kwargs,
-    ) -> Tuple[PyTree, PyTree]:
+    ) -> ControlOutput:
         ...
 
     @abc.abstractmethod
@@ -68,7 +72,7 @@ class TimeDependentControl(AbstractControl):
     control_fn: Callable[[Scalar], PyTree]
 
     def __call__(self, *, t: Scalar, **kwargs) -> ControlOutput:
-        return ControlOutput(self.control(t))
+        return ControlOutput(self.control_fn(t))
 
 
 """
@@ -112,7 +116,7 @@ class AbstractCDERNNControl(AbstractContinuousControl):
         z = control_y
         c = self.map_latents_to_controls(z)
 
-        return ControlOutput(control_values=c, dc_dt=dz_dt)
+        return ControlOutput(values=c, memory=MemoryOutput(derivative=dz_dt))
 
     @abc.abstractmethod
     def get_latent_derivative_matrix(
