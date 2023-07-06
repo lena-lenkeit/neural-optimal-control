@@ -9,6 +9,7 @@ from jaxtyping import Array, ArrayLike, PyTree
 import optimal_control.constraints as constraints
 import optimal_control.controls as controls
 import optimal_control.environments as environments
+from optimal_control.utils import exists
 
 
 class SolverState(eqx.Module):
@@ -34,6 +35,7 @@ class AbstractSolver(eqx.Module):
         ...
 
 
+"""
 def apply_constraint_chain(
     control: Array, constraint_chain: List[constraints.AbstractConstraint]
 ) -> Array:
@@ -93,3 +95,24 @@ def evaluate_reward(
 
     reward = reward_fn(environment_output)
     return reward
+"""
+
+
+def evaluate_reward(
+    control: controls.AbstractControl,
+    constraint_chain: List[constraints.AbstractConstraint],
+    environment: environments.AbstractEnvironment,
+    environment_state: environments.EnvironmentState,
+    reward_fn: Callable[[PyTree], float],
+    num_control_points: int,
+    key: jax.random.KeyArray,
+) -> float:
+    # 1. Build the control for the environment
+
+    try_project = True
+
+    ## Check if this control implicitly encodes another control
+    get_implicit_control_fn = getattr(control, "get_implicit_control", None)
+    if exists(get_implicit_control_fn):
+        control = get_implicit_control_fn()
+        try_project = False
