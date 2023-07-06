@@ -151,3 +151,11 @@ class StepRNNControl(AbstractDiscreteControl):
 
 
 # Some sort of lambda-ify auto-transformation?
+
+
+# Helpers
+def log_derivative(y: Array, dy_dt: Array) -> Array:
+    return y / dy_dt
+
+
+# def auto_control()
