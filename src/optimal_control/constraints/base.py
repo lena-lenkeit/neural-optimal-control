@@ -1,32 +1,109 @@
 import abc
 from functools import partial
+from typing import Optional, Sequence
 
 import diffrax
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike
+from jaxtyping import Array, ArrayLike, PyTree, Scalar
 
 import optimal_control.controls as controls
 
 
+class ConstraintMethod(eqx.Enumeration):
+    project = "project"
+    transform = "transform"
+    penalty = "penalty"
+    auto = "auto"
+    default = "default"
+
+
 class AbstractConstraint(eqx.Module):
+    method: ConstraintMethod = ConstraintMethod.default
+    penalty_weight: Optional[Scalar] = None
+
     @abc.abstractmethod
-    def project(self, control: Array) -> Array:
+    def project(self, control: PyTree) -> PyTree:
         ...
 
     @abc.abstractmethod
-    def transform(self, control: Array) -> Array:
+    def transform_full(self, control: PyTree) -> PyTree:
         ...
 
     @abc.abstractmethod
-    def penalty(self, control: Array) -> ArrayLike:
+    def transform_instantaneous(self, control: PyTree) -> PyTree:
+        ...
+
+    @abc.abstractmethod
+    def penalty_full(self, values: PyTree) -> Scalar:
+        ...
+
+    @abc.abstractmethod
+    def penalty_instantaneous(self, values: PyTree) -> Scalar:
+        ...
+
+    @abc.abstractmethod
+    def penalty_ode_term(self, values: PyTree) -> PyTree:
+        ...
+
+    @abc.abstractmethod
+    def penalty_ode_reward(self, integrated_term: PyTree) -> Scalar:
         ...
 
     @abc.abstractmethod
     def is_instantaneous(self) -> bool:
         ...
 
+
+class AbstractProjectionConstraint(AbstractConstraint):
+    @abc.abstractmethod
+    def project(self, control: PyTree) -> PyTree:
+        ...
+
+
+class AbstractLocalTransformationConstraint(AbstractConstraint):
+    @abc.abstractmethod
+    def transform_single(self, control: PyTree) -> PyTree:
+        ...
+
+    def transform_series(self, control: PyTree) -> PyTree:
+        return jax.vmap(self.transform_single)(control)
+
+
+class AbstractGlobalTransformationConstraint(AbstractConstraint):
+    @abc.abstractmethod
+    def transform_series(self, control: PyTree) -> PyTree:
+        ...
+
+
+class AbstractLocalPenaltyConstraint(AbstractConstraint):
+    @abc.abstractmethod
+    def penalty_single(self, values: PyTree) -> PyTree:
+        ...
+
+    def penalty_series(self, values: PyTree) -> PyTree:
+        return jax.vmap(self.penalty_single)(values)
+
+    def penalty_ode_term(self, values: PyTree) -> PyTree:
+        return self.penalty_single(values)
+
+    def penalty_ode_reward(self, integrated_term: PyTree) -> Scalar:
+        return integrated_term
+
+
+class AbstractGlobalPenaltyConstraint(AbstractConstraint):
+    @abc.abstractmethod
+    def penalty_series(self, values: PyTree) -> PyTree:
+        ...
+
+    @abc.abstractmethod
+    def penalty_ode_term(self, values: PyTree) -> PyTree:
+        ...
+
+    @abc.abstractmethod
+    def penalty_ode_reward(self, integrated_term: PyTree) -> Scalar:
+        ...
 
 
 class ConstraintChain(eqx.Module):
