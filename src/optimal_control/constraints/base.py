@@ -28,6 +28,12 @@ class AbstractConstraint(eqx.Module):
         ...
 
 
+
+class ConstraintChain(eqx.Module):
+    chain: Sequence[AbstractConstraint]
+    default_method: ConstraintMethod = ConstraintMethod.auto
+
+
 class NonNegativeConstantIntegralConstraint(AbstractConstraint):
     integral: ArrayLike
     eps: ArrayLike = 1e-10
