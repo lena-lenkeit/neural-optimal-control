@@ -1,4 +1,5 @@
 import abc
+import logging
 from typing import Callable, List, Tuple
 
 import equinox as eqx
@@ -98,6 +99,51 @@ def evaluate_reward(
 """
 
 
+def build_control(
+    base_control: controls.AbstractControl,
+    projection_constraints: List[constraints.AbstractConstraint],
+    transformation_constraints: List[constraints.AbstractConstraint],
+    penalty_constraints: List[constraints.AbstractConstraint],
+) -> Tuple[controls.AbstractControl, controls.AbstractControl]:
+    control = base_control
+
+    if len(projection_constraints) > 0:
+        projected_control: controls.AbstractConstrainableControl = control
+        for constraint in projection_constraints:
+            projected_control = projected_control.apply_constraint(constraint.project)
+
+        control = projected_control
+
+    if len(transformation_constraints) > 0:
+        transformed_control: controls.AbstractConstrainableControl = control
+        for constraint in projection_constraints:
+            transformed_control = transformed_control.apply_constraint(
+                constraint.transform
+            )
+
+        control = transformed_control
+
+    """
+    if len(penalty_constraints) > 0:
+
+        def penalty_ode(
+            t: Scalar,
+            f_y: PyTree,
+            g_y: PyTree,
+            u: PyTree,
+            args: PyTree,
+            penalty_constraints: List[constraints.AbstractConstraint],
+        ) -> PyTree:
+            for constraint in penalty_constraints:
+                constraint.penalty()
+
+    else:
+        penalty_ode = None
+    """
+
+    return control, projected_control  # , penalty_ode
+
+
 def evaluate_reward(
     control: controls.AbstractControl,
     constraint_chain: List[constraints.AbstractConstraint],
@@ -146,3 +192,12 @@ def evaluate_reward(
     # Try to create penalty terms for each constraint
     if not could_transform:
         ...
+
+    # 3. Integrate the environment
+    environment_output = environment.integrate(
+        control=control, state=environment_state, key=key
+    )
+
+    # 4. Calculate reward
+    reward = reward_fn(environment_output)
+    return reward
