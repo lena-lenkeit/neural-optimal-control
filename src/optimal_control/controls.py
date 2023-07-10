@@ -75,15 +75,11 @@ class TimeDependentControl(AbstractControl):
         return ControlOutput(self.control_fn(t))
 
 
-"""
-class AbstractProjectableControl(AbstractControl):
-    def apply_projection(
-        self, projection: Callable[[PyTree], PyTree]
-    ) -> "AbstractProjectableControl":
+class AbstractConstrainableControl(AbstractControl):
+    def apply_constraint(
+        self, constraint: Callable[[PyTree], PyTree]
+    ) -> "AbstractConstrainableControl":
         ...
-
-class ProjectableTimeDependentControl(AbstractControl):
-"""
 
 
 class StateDependentControl(AbstractControl):
