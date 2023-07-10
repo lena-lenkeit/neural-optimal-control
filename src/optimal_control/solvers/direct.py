@@ -46,9 +46,9 @@ class DirectSolver(solvers.AbstractSolver):
         key: jax.random.KeyArray,
     ) -> Tuple[DirectSolverState, controls.AbstractControl, float]:
         # Get reward & gradients w.r.t. control
-        grad_fn = eqx.filter_value_and_grad(solvers.evaluate_reward)
+        grad_fn = eqx.filter_value_and_grad(solvers.evaluate_reward, has_aux=True)
 
-        reward, control_grads = grad_fn(
+        (reward, control), control_grads = grad_fn(
             control,
             constraint_chain=constraint_chain,
             environment=environment,
