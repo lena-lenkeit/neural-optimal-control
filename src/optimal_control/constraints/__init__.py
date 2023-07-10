@@ -1,8 +1,13 @@
 from optimal_control.constraints.base import (
     AbstractConstraint,
-    ConstantIntegralConstraint,
+    AbstractGlobalPenaltyConstraint,
+    AbstractGlobalTransformationConstraint,
+    AbstractLocalPenaltyConstraint,
+    AbstractLocalTransformationConstraint,
+    AbstractPenaltyConstraint,
+    AbstractProjectionConstraint,
     ConstraintChain,
-    ConstraintMethod,
-    ConvolutionConstraint,
+)
+from optimal_control.constraints.constraints import (
     NonNegativeConstantIntegralConstraint,
 )
