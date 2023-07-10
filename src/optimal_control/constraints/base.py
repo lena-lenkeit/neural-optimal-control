@@ -1,6 +1,6 @@
 import abc
 from functools import partial
-from typing import Optional, Sequence
+from typing import List, Optional, Sequence
 
 import diffrax
 import equinox as eqx
