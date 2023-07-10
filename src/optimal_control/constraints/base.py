@@ -111,8 +111,9 @@ class AbstractGlobalPenaltyConstraint(AbstractPenaltyConstraint):
 
 
 class ConstraintChain(eqx.Module):
-    chain: Sequence[AbstractConstraint]
-    default_method: ConstraintMethod = ConstraintMethod.auto
+    projections: List[AbstractProjectionConstraint]
+    transformations: List[AbstractGlobalTransformationConstraint]
+    penalties: List[AbstractPenaltyConstraint]
 
 
 class NonNegativeConstantIntegralConstraint(AbstractConstraint):
