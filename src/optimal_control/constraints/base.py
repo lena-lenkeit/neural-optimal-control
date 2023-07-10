@@ -1,4 +1,5 @@
 import abc
+from dataclasses import field
 from functools import partial
 from typing import List, Optional, Sequence
 
@@ -70,6 +71,8 @@ class AbstractGlobalPenaltyConstraint(AbstractPenaltyConstraint):
 
 
 class ConstraintChain(eqx.Module):
-    projections: List[AbstractProjectionConstraint]
-    transformations: List[AbstractGlobalTransformationConstraint]
-    penalties: List[AbstractPenaltyConstraint]
+    projections: List[AbstractProjectionConstraint] = field(default_factory=list)
+    transformations: List[AbstractGlobalTransformationConstraint] = field(
+        default_factory=list
+    )
+    penalties: List[AbstractPenaltyConstraint] = field(default_factory=list)
