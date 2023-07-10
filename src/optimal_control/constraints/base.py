@@ -11,49 +11,8 @@ from jaxtyping import Array, ArrayLike, PyTree, Scalar
 import optimal_control.controls as controls
 
 
-class ConstraintMethod(eqx.Enumeration):
-    project = "project"
-    transform = "transform"
-    penalty = "penalty"
-    auto = "auto"
-    default = "default"
-
-
 class AbstractConstraint(eqx.Module):
-    method: ConstraintMethod = ConstraintMethod.default
-    penalty_weight: Optional[Scalar] = None
-
-    @abc.abstractmethod
-    def project(self, control: PyTree) -> PyTree:
-        ...
-
-    @abc.abstractmethod
-    def transform_full(self, control: PyTree) -> PyTree:
-        ...
-
-    @abc.abstractmethod
-    def transform_instantaneous(self, control: PyTree) -> PyTree:
-        ...
-
-    @abc.abstractmethod
-    def penalty_full(self, values: PyTree) -> Scalar:
-        ...
-
-    @abc.abstractmethod
-    def penalty_instantaneous(self, values: PyTree) -> Scalar:
-        ...
-
-    @abc.abstractmethod
-    def penalty_ode_term(self, values: PyTree) -> PyTree:
-        ...
-
-    @abc.abstractmethod
-    def penalty_ode_reward(self, integrated_term: PyTree) -> Scalar:
-        ...
-
-    @abc.abstractmethod
-    def is_instantaneous(self) -> bool:
-        ...
+    ...
 
 
 class AbstractProjectionConstraint(AbstractConstraint):
