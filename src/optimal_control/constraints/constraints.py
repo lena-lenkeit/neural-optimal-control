@@ -1,6 +1,6 @@
 import abc
 from functools import partial
-from typing import List, Optional, Sequence
+from typing import List, Literal, Optional, Sequence
 
 import diffrax
 import equinox as eqx
@@ -8,72 +8,70 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, PyTree, Scalar
 
-from optimal_control.constraints.base import AbstractConstraint
+from optimal_control.constraints.base import (
+    AbstractConstraint,
+    AbstractGlobalPenaltyConstraint,
+    AbstractGlobalTransformationConstraint,
+    AbstractProjectionConstraint,
+)
 
 
-class NonNegativeConstantIntegralConstraint(AbstractConstraint):
-    integral: ArrayLike
-    eps: ArrayLike = 1e-10
+def inner_dt_from_times(times: Array) -> Array:
+    return times[1:] - times[:-1]
 
-    def project(self, control: Array) -> Array:
-        # Non-zero constraint via clipping, with eps to prevent divide-by-zero
-        control = jnp.where(control < self.eps, self.eps, control)
 
-        # Normalize to constant integral by rescaling
-        control_integral = jnp.mean(control, axis=0)
-        control = (control / control_integral) * self.integral
+def outer_dt_from_times(times: Array) -> Scalar:
+    return times[-1] - times[0]
 
-        return control
 
-    def transform(self, control: Array) -> Array:
-        ## Via discrete softmax
+class NonNegativeConstantIntegralConstraint(
+    AbstractProjectionConstraint, AbstractGlobalTransformationConstraint
+):
+    target: PyTree
+    norm: Literal["average", "integral"] = "average"
+    # eps: Scalar = jnp.full(1, 1e-10)
 
-        return self.integral * jax.nn.softmax(control, axis=0) * control.shape[0]
+    def project(self, values: PyTree, times: PyTree) -> PyTree:
+        def map_fn(values: Array, times: Array) -> Array:
+            # Non-negativity constraint via clipping
+            values = jax.tree_util.tree_map(lambda x: jnp.clip(x, a_min=0), values)
 
-    def transform_continuous(
-        self, control: controls.AbstractControl
-    ) -> controls.LambdaControl:
-        ## Via continuous softmax
+            # Calculate integral by summing over constant pieces
+            area = values * inner_dt_from_times(times)
+            integral = jnp.sum(area)
 
-        # Calculate the softmax normalization factor (diffrax-based integration)
-        """
-        terms = diffrax.ODETerm(lambda t, x, args: jnp.exp(args(t.reshape(1))))
-        solver = diffrax.Dopri5()
-        # stepsize_controller = diffrax.PIDController(rtol=1e-3, atol=0.0)
+            # Average over the time interval, if necessary
+            if self.norm == "average":
+                integral = integral / outer_dt_from_times(times)
 
-        softmax_denominator = diffrax.diffeqsolve(
-            terms=terms,
-            solver=solver,
-            t0=0.0,
-            t1=1.0,
-            dt0=1.0 / 1000,
-            y0=jnp.zeros_like(control(jnp.asarray([0.0]))),
-            args=control,
-            saveat=diffrax.SaveAt(t1=True),
-            max_steps=1001,
-            # stepsize_controller=stepsize_controller,
-            adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=1001),
-        ).ys[-1]
-        """
+            # Normalize to target integral by rescaling
+            values = values / integral * self.target
 
-        # Calculate the softmax normalization factor (sum-based integration)
-        softmax_denominator = jnp.mean(
-            jnp.exp(jax.vmap(control)(jnp.linspace(0.0, 1.0, 1024).reshape(1024, 1))),
-            axis=0,
-        )
+            return values
 
-        # Construct the transformed control
-        transformed_control = controls.LambdaControl(
-            lambda t: self.integral * jnp.exp(control(t)) / softmax_denominator
-        )
+        values = jax.tree_util.tree_map(map_fn, values, times)
+        return values
 
-        return transformed_control
+    def transform_series(self, values: PyTree, times: PyTree) -> PyTree:
+        def map_fn(values: Array, times: Array) -> Array:
+            # Normalize via area-scaled, numerically-stable softmax
+            dt = inner_dt_from_times(times)
 
-    def penalty(self, control: Array) -> ArrayLike:
-        raise NotImplementedError()
+            max_value = values.max(axis=0, keepdims=True)
+            stable_exp = jnp.exp(values - jax.lax.stop_gradient(max_value))
+            area = stable_exp * dt
+            normalized = stable_exp / (jnp.sum(area, axis=0, keepdims=True))
 
-    def is_instantaneous(self) -> bool:
-        return False
+            if self.norm == "average":
+                normalized = normalized * outer_dt_from_times(times)
+
+            # Rescale to target
+            values = normalized * self.target
+
+            return values
+
+        values = jax.tree_util.tree_map(map_fn, values, times)
+        return values
 
 
 class ConstantIntegralConstraint(AbstractConstraint):

@@ -17,22 +17,22 @@ class AbstractConstraint(eqx.Module):
 
 class AbstractProjectionConstraint(AbstractConstraint):
     @abc.abstractmethod
-    def project(self, control: PyTree) -> PyTree:
+    def project(self, values: PyTree, times: PyTree) -> PyTree:
         ...
 
 
 class AbstractLocalTransformationConstraint(AbstractConstraint):
     @abc.abstractmethod
-    def transform_single(self, control: PyTree) -> PyTree:
+    def transform_single(self, values: PyTree) -> PyTree:
         ...
 
-    def transform_series(self, control: PyTree) -> PyTree:
-        return jax.vmap(self.transform_single)(control)
+    def transform_series(self, values: PyTree, times: PyTree) -> PyTree:
+        return jax.vmap(self.transform_single)(values)
 
 
 class AbstractGlobalTransformationConstraint(AbstractConstraint):
     @abc.abstractmethod
-    def transform_series(self, control: PyTree) -> PyTree:
+    def transform_series(self, values: PyTree, times: PyTree) -> PyTree:
         ...
 
 
