@@ -77,7 +77,11 @@ class AbstractGlobalTransformationConstraint(AbstractConstraint):
         ...
 
 
-class AbstractLocalPenaltyConstraint(AbstractConstraint):
+class AbstractPenaltyConstraint(AbstractConstraint):
+    penalty_weight: Optional[Scalar] = None
+
+
+class AbstractLocalPenaltyConstraint(AbstractPenaltyConstraint):
     @abc.abstractmethod
     def penalty_single(self, values: PyTree) -> PyTree:
         ...
@@ -89,10 +93,10 @@ class AbstractLocalPenaltyConstraint(AbstractConstraint):
         return self.penalty_single(values)
 
     def penalty_ode_reward(self, integrated_term: PyTree) -> Scalar:
-        return integrated_term
+        return integrated_term * self.penalty_weight
 
 
-class AbstractGlobalPenaltyConstraint(AbstractConstraint):
+class AbstractGlobalPenaltyConstraint(AbstractPenaltyConstraint):
     @abc.abstractmethod
     def penalty_series(self, values: PyTree) -> PyTree:
         ...
