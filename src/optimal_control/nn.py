@@ -1,11 +1,11 @@
 import abc
 from functools import partial
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Literal, Optional, Tuple, Union
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike, PRNGKeyArray, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree, Scalar
 
 from optimal_control.controls import AbstractControl
 from optimal_control.utils import exists
@@ -24,33 +24,81 @@ class LambdaControl(AbstractControl):
             return self.control_fun(t)
 
 
-class InterpolationControl(AbstractControl):
-    control: Array
-    channels: int
-    steps: int
-    t_start: float
-    t_end: float
+class InterpolationCurve(eqx.Module):
     method: str
+    nodes: Float[Array, "index channel"]
+    times: Float[Array, "index"]
+    has_even_spacing: bool
 
     def __init__(
         self,
-        channels: int,
-        steps: int,
-        t_start: float,
-        t_end: float,
-        method: str = "linear",
-        control: Optional[Array] = None,
+        method: Literal["step", "linear"] = "step",
+        nodes: Optional[Float[Array, "nodes channels"]] = None,
+        times: Optional[Float[Array, "times"]] = None,
+        *,
+        t_start: Optional[float] = None,
+        t_end: Optional[float] = None,
+        steps: Optional[int] = None,
+        channels: Optional[int] = None,
     ):
-        self.channels = channels
-        self.steps = steps
-        self.t_start = t_start
-        self.t_end = t_end
         self.method = method
 
-        if not exists(control):
-            self.control = jnp.zeros((self.steps, self.channels))
+        if exists(nodes) and exists(times):
+            assert (
+                not exists(t_start)
+                and not exists(t_end)
+                and not exists(steps)
+                and not exists(channels)
+            ), "You can either only directly specify the points of the curve, or the interval info, but not both"
+
+            if method == "step":
+                assert (nodes.shape[0] + 1) == times.shape[
+                    0
+                ], 'method = "linear" requires the number of nodes to be one less than the number of timepoints'
+
+                assert (
+                    nodes.shape[0] >= 1
+                ), 'method = "step" requires at least 1 step / node'
+
+            elif method == "linear":
+                assert (
+                    nodes.shape[0] == times.shape[0]
+                ), 'method = "linear" requires the number of nodes and timepoints to be equal'
+
+                assert (
+                    nodes.shape[0] >= 2
+                ), 'method = "linear" requires at least 2 steps / nodes'
+
+            self.nodes = nodes
+            self.times = times
+            self.has_even_spacing = False
+
+        elif exists(t_start) and exists(t_end) and exists(steps):
+            if not exists(nodes):
+                nodes = jnp.zeros(steps, channels)
+
+            if method == "step":
+                assert (
+                    nodes.shape[0] >= 1
+                ), 'method = "step" requires at least 1 step / node'
+
+                times = jnp.linspace(t_start, t_end, num=(steps + 1))
+
+            elif method == "linear":
+                assert (
+                    nodes.shape[0] >= 2
+                ), 'method = "linear" requires at least 2 steps / nodes'
+
+                times = jnp.linspace(t_start, t_end, num=(steps))
+
+            self.nodes = nodes
+            self.times = times
+            self.has_even_spacing = True
+
         else:
-            self.control = control
+            raise TypeError(
+                "Either the points of the curve, or the interval info, must be specified to construct this class"
+            )
 
     @staticmethod
     def interpolate_linear(x: ArrayLike, xp: ArrayLike, fp: ArrayLike) -> Array:
@@ -65,8 +113,8 @@ class InterpolationControl(AbstractControl):
     @staticmethod
     def interpolate_step(x: ArrayLike, xp: ArrayLike, fp: ArrayLike) -> Array:
         def interp(x: ArrayLike, xp: ArrayLike, fp: ArrayLike) -> Array:
-            idx = jnp.searchsorted(xp, x)
-            y = jnp.where((x <= xp[0]) | (x > xp[-1]), 0.0, fp[idx - 1])
+            idx = jnp.searchsorted(xp, x, side="right")
+            y = jnp.where((x < xp[0]) | (x >= xp[-1]), 0.0, fp[idx - 1])
 
             return y
 
@@ -74,21 +122,22 @@ class InterpolationControl(AbstractControl):
         return vintp(x, xp, fp)
 
     @staticmethod
-    def interpolate(x: ArrayLike, xp: ArrayLike, fp: ArrayLike, method: str) -> Array:
+    def interpolate(
+        x: ArrayLike, xp: ArrayLike, fp: ArrayLike, method: Literal["step", "linear"]
+    ) -> Array:
         if method == "linear":
-            return InterpolationControl.interpolate_linear(x, xp, fp)
+            return InterpolationCurve.interpolate_linear(x, xp, fp)
         elif method == "step":
-            return InterpolationControl.interpolate_step(x, xp, fp)
+            return InterpolationCurve.interpolate_step(x, xp, fp)
 
     @staticmethod
-    @jax.jit
     @partial(jax.vmap, in_axes=(None, -1, None, None), out_axes=-1)
-    # Weirdly, this is much slower in the Fibrosis environment
-    #   Maybe because it's a step function?
     def fast_interpolate_step(t: ArrayLike, c: Array, t0: float, t1: float) -> Array:
-        # Find indicies into array
+        # Ensure correct shape
         t = jnp.atleast_1d(t)[0]
 
+        # Find indicies into array
+        print(t, t0, t1)
         i = (t - t0) / (t1 - t0)
         i = jnp.floor(i * c.shape[0]).astype(jnp.int32)
 
@@ -103,12 +152,14 @@ class InterpolationControl(AbstractControl):
         return x
 
     @staticmethod
-    @jax.jit
     @partial(jax.vmap, in_axes=(None, -1, None, None), out_axes=-1)
     def fast_interpolate_linear(t: ArrayLike, c: Array, t0: float, t1: float) -> Array:
+        # Ensure correct shape
+        t = jnp.atleast_1d(t)[0]
+
         # Find continuous indices
         ci = (t - t0) / (t1 - t0)
-        ci = ci * c.shape[0]
+        ci = ci * (c.shape[0] - 1)
 
         # Extract left / right indices and interpolant
         li = jnp.floor(ci)
@@ -130,24 +181,27 @@ class InterpolationControl(AbstractControl):
 
         return ix
 
-    def __call__(self, t: ArrayLike) -> Array:
-        # """
-        if self.method == "step":
-            return InterpolationControl.fast_interpolate_step(
-                t, self.control, self.t_start, self.t_end
-            )
-        elif self.method == "linear":
-            return InterpolationControl.fast_interpolate_linear(
-                t, self.control, self.t_start, self.t_end
-            )
-        # """
+    @staticmethod
+    def fast_interpolate(
+        t: ArrayLike, c: Array, t0: float, t1: float, method: Literal["step", "linear"]
+    ) -> Array:
+        if method == "linear":
+            return InterpolationCurve.fast_interpolate_linear(t, c, t0, t1)
+        elif method == "step":
+            return InterpolationCurve.fast_interpolate_step(t, c, t0, t1)
 
-        """
-        t = (t - self.t_start) / (self.t_end - self.t_start)
-        return InterpolationControl.interpolate(
-            t, jnp.linspace(0.0, 1.0, self.steps), self.control, self.method
-        )
-        """
+    def __call__(self, t: ArrayLike) -> Array:
+        t_start = self.times[0]
+        t_end = self.times[-1]
+
+        if self.has_even_spacing:
+            return InterpolationCurve.fast_interpolate(
+                t, self.nodes, t_start, t_end, self.method
+            )
+        else:
+            return InterpolationCurve.interpolate(
+                t, self.times, self.nodes, self.method
+            )
 
 
 class ImplicitControl(AbstractControl):
@@ -370,7 +424,7 @@ class ModularControl(eqx.Module):
         rnn_cell_type: Optional[str],
         mode: str = "cde-rnn",
         *,
-        key: PRNGKeyArray
+        key: PRNGKeyArray,
     ):
         self.num_controls = num_controls
         self.num_latents = num_latents
