@@ -26,7 +26,6 @@ class DirectSolverState(solvers.SolverState):
 
 class DirectSolver(solvers.AbstractSolver):
     optimizer: optax.GradientTransformation
-    num_control_points: int
     ignore_nans: bool = False
 
     def init(self, control: controls.AbstractControl) -> DirectSolverState:
@@ -41,7 +40,7 @@ class DirectSolver(solvers.AbstractSolver):
         environment: environments.AbstractEnvironment,
         environment_state: environments.EnvironmentState,
         reward_fn: Callable[[PyTree], float],
-        constraint_chain: List[constraints.AbstractConstraint],
+        constraint_chain: constraints.ConstraintChain,
         control: controls.AbstractControl,
         key: jax.random.KeyArray,
     ) -> Tuple[DirectSolverState, controls.AbstractControl, float]:
@@ -54,7 +53,6 @@ class DirectSolver(solvers.AbstractSolver):
             environment=environment,
             environment_state=environment_state,
             reward_fn=reward_fn,
-            num_control_points=self.num_control_points,
             key=key,
         )
 

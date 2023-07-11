@@ -44,7 +44,7 @@ def step_state(
     environment: environments.AbstractEnvironment,
     environment_state: environments.EnvironmentState,
     reward_fn: Callable[[PyTree], float],
-    constraint_chain: List[constraints.AbstractConstraint],
+    constraint_chain: constraints.ConstraintChain,
 ) -> TrainState:
     train_state: TrainState = eqx.combine(train_state_jaxtypes, train_state_pytypes)
 
@@ -71,7 +71,7 @@ def solve_optimal_control_problem(
     num_train_steps: int,
     environment: environments.AbstractEnvironment,
     reward_fn: Callable[[PyTree], float],
-    constraint_chain: List[constraints.AbstractConstraint],
+    constraint_chain: constraints.ConstraintChain,
     solver: solvers.AbstractSolver,
     control: controls.AbstractControl,
     key: jax.random.KeyArray,
