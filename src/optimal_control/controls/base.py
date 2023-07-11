@@ -76,8 +76,9 @@ class TimeDependentControl(AbstractControl):
 
 
 class AbstractConstrainableControl(AbstractControl):
+    @abc.abstractmethod
     def apply_constraint(
-        self, constraint: Callable[[PyTree], PyTree]
+        self, constraint_fn: Callable[[PyTree, Optional[PyTree]], PyTree]
     ) -> "AbstractConstrainableControl":
         ...
 
