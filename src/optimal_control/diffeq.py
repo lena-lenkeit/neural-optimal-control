@@ -19,9 +19,9 @@ def with_control(
         control, f_args = args
 
         if time:
-            u = control(t)
+            u = control(t=t)
         if state:
-            u = control(y)
+            u = control(y=y)
 
         dy = f(t, y, u, f_args)
         return dy
