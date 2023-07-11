@@ -8,20 +8,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, Float, Integer, PRNGKeyArray, PyTree, Scalar
 
 from optimal_control.controls import AbstractControl
-from optimal_control.utils import exists
-
-
-class LambdaControl(AbstractControl):
-    control_fun: Union[
-        Callable[[ArrayLike, PyTree], Array], Callable[[ArrayLike], Array]
-    ]
-    data: Optional[PyTree] = None
-
-    def __call__(self, t: ArrayLike) -> Array:
-        if exists(self.data):
-            return self.control_fun(t, self.data)
-        else:
-            return self.control_fun(t)
+from optimal_control.utils import default, exists
 
 
 class InterpolationCurve(eqx.Module):
@@ -35,6 +22,7 @@ class InterpolationCurve(eqx.Module):
         method: Literal["step", "linear"] = "step",
         nodes: Optional[Float[Array, "nodes channels"]] = None,
         times: Optional[Float[Array, "times"]] = None,
+        has_even_spacing: Optional[bool] = None,
         *,
         t_start: Optional[float] = None,
         t_end: Optional[float] = None,
@@ -71,11 +59,11 @@ class InterpolationCurve(eqx.Module):
 
             self.nodes = nodes
             self.times = times
-            self.has_even_spacing = False
+            self.has_even_spacing = default(has_even_spacing, False)
 
         elif exists(t_start) and exists(t_end) and exists(steps):
             if not exists(nodes):
-                nodes = jnp.zeros(steps, channels)
+                nodes = jnp.zeros((steps, channels))
 
             if method == "step":
                 assert (
@@ -137,7 +125,6 @@ class InterpolationCurve(eqx.Module):
         t = jnp.atleast_1d(t)[0]
 
         # Find indicies into array
-        print(t, t0, t1)
         i = (t - t0) / (t1 - t0)
         i = jnp.floor(i * c.shape[0]).astype(jnp.int32)
 
