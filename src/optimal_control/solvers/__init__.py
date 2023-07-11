@@ -1,7 +1,6 @@
 from optimal_control.solvers.base import (
     AbstractSolver,
     SolverState,
-    apply_constraint_chain,
     build_control,
     evaluate_reward,
 )
