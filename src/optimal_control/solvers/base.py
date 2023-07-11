@@ -101,24 +101,24 @@ def evaluate_reward(
 
 def build_control(
     base_control: controls.AbstractControl,
-    projection_constraints: List[constraints.AbstractConstraint],
-    transformation_constraints: List[constraints.AbstractConstraint],
-    penalty_constraints: List[constraints.AbstractConstraint],
+    chain: constraints.ConstraintChain,
 ) -> Tuple[controls.AbstractControl, controls.AbstractControl]:
     control = base_control
 
-    if len(projection_constraints) > 0:
+    if len(chain.projections) > 0:
         projected_control: controls.AbstractConstrainableControl = control
-        for constraint in projection_constraints:
+        for constraint in chain.projections:
             projected_control = projected_control.apply_constraint(constraint.project)
 
         control = projected_control
+    else:
+        projected_control = control
 
-    if len(transformation_constraints) > 0:
+    if len(chain.transformations) > 0:
         transformed_control: controls.AbstractConstrainableControl = control
-        for constraint in projection_constraints:
+        for constraint in chain.transformations:
             transformed_control = transformed_control.apply_constraint(
-                constraint.transform
+                constraint.transform_series
             )
 
         control = transformed_control
@@ -146,58 +146,20 @@ def build_control(
 
 def evaluate_reward(
     control: controls.AbstractControl,
-    constraint_chain: List[constraints.AbstractConstraint],
+    constraint_chain: constraints.ConstraintChain,
     environment: environments.AbstractEnvironment,
     environment_state: environments.EnvironmentState,
     reward_fn: Callable[[PyTree], float],
-    num_control_points: int,
     key: jax.random.KeyArray,
 ) -> Tuple[Scalar, controls.AbstractControl]:
     # 1. Build the control for the environment
+    control, projected_control = build_control(control, constraint_chain)
 
-    eval_control = None
-    ret_control = None
-    try_project = True
-
-    # Check if this control implicitly encodes another control
-    get_implicit_control_fn = getattr(control, "get_implicit_control", None)
-    if exists(get_implicit_control_fn):
-        control = get_implicit_control_fn()
-
-        # Stop the implicitly encoded control from being projected
-        try_project = False
-
-    # 2. Try to bake constraints into the control
-    # Project -> Transform -> Penalty
-
-    # Try to project the parameters of the control, such that the outputs lie in the
-    # constrained region
-    could_project = False
-    if try_project:
-        apply_projection_fn = getattr(control, "apply_projection", None)
-
-        if exists(apply_projection_fn):
-            for constraint in constraint_chain:
-                apply_projection_fn = getattr(control, "apply_projection")
-                control = apply_projection_fn(constraint.project)
-
-            could_project = True
-
-    # Try to transform the control outputs, such that they lie in the constrained region
-    could_transform = False
-    if not could_project:
-        # In this case, we need to cache the control onto interpolation curves
-        ...
-
-    # Try to create penalty terms for each constraint
-    if not could_transform:
-        ...
-
-    # 3. Integrate the environment
+    # 2. Integrate the environment
     environment_output = environment.integrate(
         control=control, state=environment_state, key=key
     )
 
-    # 4. Calculate reward
+    # 3. Calculate reward
     reward = reward_fn(environment_output)
-    return reward
+    return reward, projected_control
