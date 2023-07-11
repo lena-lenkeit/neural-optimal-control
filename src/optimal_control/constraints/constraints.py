@@ -29,20 +29,22 @@ class NonNegativeConstantIntegralConstraint(
 ):
     target: PyTree
     norm: Literal["average", "integral"] = "average"
-    # eps: Scalar = jnp.full(1, 1e-10)
+    eps: Scalar = jnp.full(1, 1e-10)
 
     def project(self, values: PyTree, times: PyTree) -> PyTree:
         def map_fn(values: Array, times: Array) -> Array:
             # Non-negativity constraint via clipping
-            values = jax.tree_util.tree_map(lambda x: jnp.clip(x, a_min=0), values)
+            values = jax.tree_util.tree_map(
+                lambda x: jnp.clip(x, a_min=self.eps), values
+            )
 
             # Calculate integral by summing over constant pieces
-            area = values * inner_dt_from_times(times)
-            integral = jnp.sum(area)
+            area = values * inner_dt_from_times(times).reshape(-1, 1)
+            integral = jnp.sum(area, axis=0, keepdims=True)
 
             # Average over the time interval, if necessary
             if self.norm == "average":
-                integral = integral / outer_dt_from_times(times)
+                integral = integral / outer_dt_from_times(times).reshape(-1, 1)
 
             # Normalize to target integral by rescaling
             values = values / integral * self.target
@@ -55,7 +57,7 @@ class NonNegativeConstantIntegralConstraint(
     def transform_series(self, values: PyTree, times: PyTree) -> PyTree:
         def map_fn(values: Array, times: Array) -> Array:
             # Normalize via area-scaled, numerically-stable softmax
-            dt = inner_dt_from_times(times)
+            dt = inner_dt_from_times(times).reshape(-1, 1)
 
             max_value = values.max(axis=0, keepdims=True)
             stable_exp = jnp.exp(values - jax.lax.stop_gradient(max_value))
@@ -63,7 +65,7 @@ class NonNegativeConstantIntegralConstraint(
             normalized = stable_exp / (jnp.sum(area, axis=0, keepdims=True))
 
             if self.norm == "average":
-                normalized = normalized * outer_dt_from_times(times)
+                normalized = normalized * outer_dt_from_times(times).reshape(-1, 1)
 
             # Rescale to target
             values = normalized * self.target
