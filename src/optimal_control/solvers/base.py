@@ -105,30 +105,39 @@ def build_control(
 ) -> Tuple[controls.AbstractControl, controls.AbstractControl]:
     control = base_control
 
-    # TODO: Fix the hierarchy here
+    def project(
+        control: controls.AbstractConstrainableControl,
+        projections: List[constraints.AbstractProjectionConstraint],
+    ) -> controls.AbstractConstrainableControl:
+        for constraint in projections:
+            control = control.apply_constraint(constraint.project)
+
+        return control
+
+    def transform(
+        control: controls.AbstractConstrainableControl,
+        transformations: List[constraints.AbstractGlobalTransformationConstraint],
+    ) -> controls.AbstractConstrainableControl:
+        for constraint in transformations:
+            control = control.apply_constraint(constraint.transform_series)
+
+        return control
+
     implicit_control_fn = getattr(control, "get_implicit_control", None)
     if exists(implicit_control_fn):
         implicit_control = implicit_control_fn()
+
         if exists(implicit_control):
+            carry_control = control
             control = implicit_control
-
-    if len(chain.projections) > 0:
-        projected_control: controls.AbstractConstrainableControl = control
-        for constraint in chain.projections:
-            projected_control = projected_control.apply_constraint(constraint.project)
-
-        control = projected_control
+        else:
+            control = project(control, chain.projections)
+            carry_control = control
     else:
-        projected_control = control
+        control = project(control, chain.projections)
+        carry_control = control
 
-    if len(chain.transformations) > 0:
-        transformed_control: controls.AbstractConstrainableControl = control
-        for constraint in chain.transformations:
-            transformed_control = transformed_control.apply_constraint(
-                constraint.transform_series
-            )
-
-        control = transformed_control
+    control = transform(control, chain.transformations)
 
     """
     if len(penalty_constraints) > 0:
@@ -148,7 +157,7 @@ def build_control(
         penalty_ode = None
     """
 
-    return control, projected_control  # , penalty_ode
+    return control, carry_control  # , penalty_ode
 
 
 def evaluate_reward(
