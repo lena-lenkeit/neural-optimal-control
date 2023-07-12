@@ -105,6 +105,13 @@ def build_control(
 ) -> Tuple[controls.AbstractControl, controls.AbstractControl]:
     control = base_control
 
+    # TODO: Fix the hierarchy here
+    implicit_control_fn = getattr(control, "get_implicit_control", None)
+    if exists(implicit_control_fn):
+        implicit_control = implicit_control_fn()
+        if exists(implicit_control):
+            control = implicit_control
+
     if len(chain.projections) > 0:
         projected_control: controls.AbstractConstrainableControl = control
         for constraint in chain.projections:
