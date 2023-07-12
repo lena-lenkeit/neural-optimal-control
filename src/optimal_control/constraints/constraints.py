@@ -65,13 +65,25 @@ class NonNegativeConstantIntegralConstraint(
 
     def transform_series(self, values: PyTree, times: PyTree) -> PyTree:
         def map_fn(values: Array, times: Array) -> Array:
+            """
             # Normalize via area-scaled, numerically-stable softmax
             dt = inner_dt_from_times(times).reshape(-1, 1)
 
-            max_value = values.max(axis=0, keepdims=True)
-            stable_exp = jnp.exp(values - jax.lax.stop_gradient(max_value))
+            is_linear = values.shape[0] == times.shape[0]
+            if is_linear:
+                # Use the midpoint for linearly interpolated values
+                interp_values = (values[1:] + values[:-1]) / 2
+
+            else:
+                # Use the left edge for constant values
+                interp_values = values
+
+            max_value = interp_values.max(axis=0, keepdims=True)
+            stable_exp = jnp.exp(interp_values - jax.lax.stop_gradient(max_value))
+            print(interp_values.shape, dt.shape, times.shape)
             area = stable_exp * dt
-            normalized = stable_exp / (jnp.sum(area, axis=0, keepdims=True))
+            # normalized = stable_exp / (jnp.sum(area, axis=0, keepdims=True))
+            normalized = area / (jnp.sum(area, axis=0, keepdims=True))
 
             if self.norm == "average":
                 normalized = normalized * outer_dt_from_times(times).reshape(-1, 1)
@@ -79,7 +91,20 @@ class NonNegativeConstantIntegralConstraint(
             # Rescale to target
             values = normalized * self.target
 
+            # Add missing points for linear interpolation
+            if is_linear:
+                values = jnp.concatenate(
+                    (values[:1], (values[1:] + values[:-1]) / 2, values[-1:]), axis=0
+                )
+
             return values
+            """
+
+            normalized = jax.nn.softmax(values, axis=0) * self.target
+            if self.norm == "average":
+                normalized = normalized * values.shape[0]
+
+            return normalized
 
         values = jax.tree_util.tree_map(map_fn, values, times)
         return values
