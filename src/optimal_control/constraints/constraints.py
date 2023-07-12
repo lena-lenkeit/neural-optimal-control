@@ -100,11 +100,32 @@ class NonNegativeConstantIntegralConstraint(
             return values
             """
 
-            normalized = jax.nn.softmax(values, axis=0) * self.target
-            if self.norm == "average":
-                normalized = normalized * values.shape[0]
+            def integrate(
+                values: Array, times: Array, interpolation: Literal["step", "linear"]
+            ) -> Array:
+                dt = inner_dt_from_times(times)
 
-            return normalized
+                if interpolation == "step":
+                    return jnp.sum(values * dt)
+                elif interpolation == "linear":
+                    midpoints = (values[1:] + values[:-1]) / 2
+                    return jnp.sum(midpoints * dt)
+
+            is_linear = values.shape[0] == times.shape[0]
+
+            softmax = jax.nn.softmax(values, axis=0)
+            integral = jax.vmap(
+                partial(integrate, interpolation="linear" if is_linear else "step"),
+                in_axes=(-1, None),
+                out_axes=-1,
+            )(softmax, times)
+
+            normalized = softmax / integral * self.target
+
+            if self.norm == "average":
+                return normalized * outer_dt_from_times(times)
+            elif self.norm == "integral":
+                return normalized
 
         values = jax.tree_util.tree_map(map_fn, values, times)
         return values
