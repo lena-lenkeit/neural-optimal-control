@@ -4,4 +4,8 @@ from optimal_control.controls.base import (
     ControlOutput,
     MemoryOutput,
 )
-from optimal_control.controls.controls import InterpolationCurveControl, LambdaControl
+from optimal_control.controls.controls import (
+    ImplicitTemporalControl,
+    InterpolationCurveControl,
+    LambdaControl,
+)
