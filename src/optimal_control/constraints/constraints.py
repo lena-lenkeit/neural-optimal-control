@@ -38,8 +38,17 @@ class NonNegativeConstantIntegralConstraint(
                 lambda x: jnp.clip(x, a_min=self.eps), values
             )
 
+            if values.shape[0] == times.shape[0]:
+                # Use the midpoint for linearly interpolated values
+                interp_values = (values[1:] + values[:-1]) / 2
+
+            else:
+                # Use the left edge for constant values
+                interp_values = values
+
+            area = interp_values * inner_dt_from_times(times).reshape(-1, 1)
+
             # Calculate integral by summing over constant pieces
-            area = values * inner_dt_from_times(times).reshape(-1, 1)
             integral = jnp.sum(area, axis=0, keepdims=True)
 
             # Average over the time interval, if necessary
