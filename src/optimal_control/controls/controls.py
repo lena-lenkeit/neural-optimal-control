@@ -43,7 +43,7 @@ class InterpolationCurveControl(controls.AbstractConstrainableControl):
         return InterpolationCurveControl(constrained_curve)
 
 
-class ImplicitTemporalControl(controls.AbstractConstrainableControl):
+class ImplicitTemporalControl(controls.AbstractControl):
     implicit_fn: eqx.Module
     t_start: Scalar
     t_end: Scalar
@@ -52,9 +52,41 @@ class ImplicitTemporalControl(controls.AbstractConstrainableControl):
     curve_interpolation: Optional[Literal["step", "linear"]] = None
     curve_steps: Optional[int] = None
 
+    def normalize_time(self, t: Array) -> Array:
+        return (t - self.t_start) / (self.t_end - self.t_start)
+
     def __call__(self, t: Scalar, **kwargs) -> controls.ControlOutput:
-        t_norm = (t - self.t_start) / (self.t_end - self.t_start)
-        return self.implicit_fn(t_norm)
+        return self.implicit_fn(self.normalize_time(t))
 
     def get_implicit_control(self) -> InterpolationCurveControl:
-        ...
+        if not self.to_curve:
+            return None
+
+        if exists(self.curve_times):
+            curve_times = self.normalize_time(self.curve_times).reshape(-1, 1)
+            curve_values = jax.vmap(self.implicit_fn)(curve_times)
+
+            curve = nn.InterpolationCurve(
+                method=self.curve_interpolation, nodes=curve_values, times=curve_times
+            )
+
+        elif exists(self.curve_steps):
+            times = jnp.linspace(-1.0, 1.0, num=self.curve_steps).reshape(-1, 1)
+            curve_values = jax.vmap(self.implicit_fn)(times)
+            curve_channels = eqx.filter_eval_shape(self.implicit_fn, times[0]).shape[-1]
+
+            curve = nn.InterpolationCurve(
+                method=self.curve_interpolation,
+                nodes=curve_values,
+                t_start=self.t_start,
+                t_end=self.t_end,
+                steps=self.curve_steps,
+                channels=curve_channels,
+            )
+
+        else:
+            raise TypeError(
+                "One of curve_times or curve_steps must be specified to construct an implicit control"
+            )
+
+        return InterpolationCurveControl(curve)
