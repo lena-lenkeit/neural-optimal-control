@@ -1,6 +1,6 @@
 import abc
 from functools import partial
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, Literal, Optional, Tuple, Union
 
 import equinox as eqx
 import jax
@@ -41,3 +41,20 @@ class InterpolationCurveControl(controls.AbstractConstrainableControl):
         )
 
         return InterpolationCurveControl(constrained_curve)
+
+
+class ImplicitTemporalControl(controls.AbstractConstrainableControl):
+    implicit_fn: eqx.Module
+    t_start: Scalar
+    t_end: Scalar
+    to_curve: bool
+    curve_times: Optional[Array] = None
+    curve_interpolation: Optional[Literal["step", "linear"]] = None
+    curve_steps: Optional[int] = None
+
+    def __call__(self, t: Scalar, **kwargs) -> controls.ControlOutput:
+        t_norm = (t - self.t_start) / (self.t_end - self.t_start)
+        return self.implicit_fn(t_norm)
+
+    def get_implicit_control(self) -> InterpolationCurveControl:
+        ...
