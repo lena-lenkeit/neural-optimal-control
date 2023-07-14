@@ -1,6 +1,6 @@
 import abc
 from functools import partial
-from typing import List, Literal, Optional, Sequence
+from typing import List, Literal, Optional, Sequence, Tuple, Union
 
 import diffrax
 import equinox as eqx
@@ -30,6 +30,7 @@ class NonNegativeConstantIntegralConstraint(
     target: PyTree
     norm: Literal["average", "integral"] = "average"
     eps: Scalar = jnp.full(1, 1e-10)
+    constrain_sum: bool = False
 
     def project(self, values: PyTree, times: PyTree) -> PyTree:
         def map_fn(values: Array, times: Array) -> Array:
@@ -113,12 +114,15 @@ class NonNegativeConstantIntegralConstraint(
 
             is_linear = values.shape[0] == times.shape[0]
 
-            softmax = jax.nn.softmax(values, axis=0)
+            softmax = jax.nn.softmax(values, axis=(0, 1) if self.constrain_sum else 0)
             integral = jax.vmap(
                 partial(integrate, interpolation="linear" if is_linear else "step"),
                 in_axes=(-1, None),
                 out_axes=-1,
             )(softmax, times)
+
+            if self.constrain_sum:
+                integral = jnp.sum(integral)
 
             normalized = softmax / integral * self.target
 
