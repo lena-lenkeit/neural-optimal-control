@@ -32,7 +32,9 @@ class InterpolationCurveControl(controls.AbstractConstrainableControl):
     def apply_constraint(
         self, constraint_fn: Callable[[PyTree, Optional[PyTree]], PyTree]
     ) -> "InterpolationCurveControl":
-        constrained_nodes = constraint_fn(self.curve.nodes, self.curve.times)
+        constrained_nodes = constraint_fn(
+            self.curve.nodes, jax.lax.stop_gradient(self.curve.times)
+        )
         constrained_curve = nn.InterpolationCurve(
             method=self.curve.method,
             nodes=constrained_nodes,
