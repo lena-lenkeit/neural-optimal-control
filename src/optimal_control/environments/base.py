@@ -22,5 +22,6 @@ class AbstractEnvironment(eqx.Module):
         control: controls.AbstractControl,
         state: EnvironmentState,
         key: jax.random.KeyArray,
+        **kwargs,
     ) -> PyTree:
         ...
