@@ -43,6 +43,7 @@ class DirectSolver(solvers.AbstractSolver):
         constraint_chain: constraints.ConstraintChain,
         control: controls.AbstractControl,
         key: jax.random.KeyArray,
+        integrate_kwargs: Optional[dict] = None,
     ) -> Tuple[DirectSolverState, controls.AbstractControl, float]:
         # Get reward & gradients w.r.t. control
         grad_fn = eqx.filter_value_and_grad(solvers.evaluate_reward, has_aux=True)
@@ -54,6 +55,7 @@ class DirectSolver(solvers.AbstractSolver):
             environment_state=environment_state,
             reward_fn=reward_fn,
             key=key,
+            integrate_kwargs=integrate_kwargs,
         )
 
         if self.ignore_nans:

@@ -45,6 +45,7 @@ def step_state(
     environment_state: environments.EnvironmentState,
     reward_fn: Callable[[PyTree], float],
     constraint_chain: constraints.ConstraintChain,
+    integrate_kwargs: dict,
 ) -> TrainState:
     train_state: TrainState = eqx.combine(train_state_jaxtypes, train_state_pytypes)
 
@@ -57,6 +58,7 @@ def step_state(
         constraint_chain=constraint_chain,
         control=train_state.control,
         key=subkey,
+        integrate_kwargs=integrate_kwargs,
     )
 
     train_state = TrainState(
@@ -76,6 +78,7 @@ def solve_optimal_control_problem(
     control: controls.AbstractControl,
     key: jax.random.KeyArray,
     pbar_interval: Optional[int] = None,
+    integrate_kwargs: dict = {},
 ) -> Tuple[float, controls.AbstractControl]:
     # Initialize states
     environment_state, solver_state = init_state(
@@ -97,6 +100,7 @@ def solve_optimal_control_problem(
         environment_state=environment_state,
         reward_fn=reward_fn,
         constraint_chain=constraint_chain,
+        integrate_kwargs=integrate_kwargs,
     )
 
     if exists(pbar_interval):

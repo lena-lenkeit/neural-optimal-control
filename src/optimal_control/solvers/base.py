@@ -1,6 +1,6 @@
 import abc
 import logging
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import equinox as eqx
 import jax
@@ -32,6 +32,7 @@ class AbstractSolver(eqx.Module):
         constraint_chain: List[constraints.AbstractConstraint],
         control: controls.AbstractControl,
         key: jax.random.KeyArray,
+        integrate_kwargs: Optional[dict] = None,
     ) -> Tuple[SolverState, controls.AbstractControl, float]:
         ...
 
@@ -167,13 +168,14 @@ def evaluate_reward(
     environment_state: environments.EnvironmentState,
     reward_fn: Callable[[PyTree], float],
     key: jax.random.KeyArray,
+    integrate_kwargs: Optional[dict] = None,
 ) -> Tuple[Scalar, controls.AbstractControl]:
     # 1. Build the control for the environment
     control, projected_control = build_control(control, constraint_chain)
 
     # 2. Integrate the environment
     environment_output = environment.integrate(
-        control=control, state=environment_state, key=key
+        control=control, state=environment_state, key=key, **integrate_kwargs
     )
 
     # 3. Calculate reward
