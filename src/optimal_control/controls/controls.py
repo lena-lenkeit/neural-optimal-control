@@ -65,8 +65,8 @@ class ImplicitTemporalControl(controls.AbstractControl):
             return None
 
         if exists(self.curve_times):
-            curve_times = self.normalize_time(self.curve_times).reshape(-1, 1)
-            curve_values = jax.vmap(self.implicit_fn)(curve_times)
+            curve_times = self.normalize_time(self.curve_times)
+            curve_values = jax.vmap(self.implicit_fn)(curve_times.reshape(-1, 1))
 
             curve = nn.InterpolationCurve(
                 method=self.curve_interpolation, nodes=curve_values, times=curve_times
