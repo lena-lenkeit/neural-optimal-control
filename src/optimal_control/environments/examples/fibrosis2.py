@@ -43,16 +43,16 @@ def _fibrosis_ode(t: Scalar, y: Array, u: Array, m: Array) -> Array:
     )  # alpha2=510 molecules/cell/min, endocytosis rate PDGF     ---- alpha_2
     k[10] = 6e8  # #binding affinities: k1=6x10^8 molecules (PDGF)     ---- k_1
     k[11] = 6e8  # k2=6x10^8 (CSF)                                   ---- k_2
-    k[12] = macrophage_influx * 140 * 1440  # + 0.01 * 1440 # 120 inflammation pulse
+    k[12] = macrophage_influx * 140 * 1440  # + 0.01 * 1440  # 120 inflammation pulse
     k[13] = 1e6
 
     # PDGF antibody
     k_pdfg_ab = 1 * 1440  # 1 / (min * molecule)
-    pdgf_ab_deg = -k_pdfg_ab * y[3] * c_pdgf_ab
+    pdgf_ab_deg = -k_pdfg_ab * y[3] * jnp.clip(c_pdgf_ab, a_min=1e-4)
 
     # CSF1 antibody
     k_csf1_ab = 1 * 1440  # 1 / (min * molecule)
-    csf1_ab_deg = -k_csf1_ab * y[2] * c_csf1_ab
+    csf1_ab_deg = -k_csf1_ab * y[2] * jnp.clip(c_csf1_ab, a_min=1e-4)
 
     # ODE
     dy = [None] * 4
@@ -79,11 +79,11 @@ def fibrosis_ode(
     t: Scalar, y: Array, u: Array, args: Callable[[Scalar], Scalar]
 ) -> Array:
     m = args
-    return _fibrosis_ode(t, y, u, m(t)[0])
+    return _fibrosis_ode(t, y, u, m(t=t)[0])
 
 
 def _fibrosis_reward(t: Scalar, fy: PyTree, gy: PyTree, u: PyTree, args: PyTree):
-    fibrosis_penalty = jnp.sum(jnp.log(fy[..., :2]), axis=-1)
+    fibrosis_penalty = jnp.sum(jnp.log(jnp.clip(fy[..., :2], a_min=1e2)), axis=-1)
 
     return -jnp.atleast_1d(fibrosis_penalty)
 
@@ -110,6 +110,9 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
                 control=controls.LambdaControl(lambda _: jnp.zeros(2)),
                 inflammation_pulse=False,
                 throw=True,
+                stepsize_controller=diffrax.PIDController(
+                    rtol=1e-6, atol=1e-6, pcoeff=1.0, icoeff=1.0
+                ),
             ).ys[-1, :4]
         )
 
@@ -123,6 +126,10 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         saveat: diffrax.SaveAt = diffrax.SaveAt(t1=True),
         max_steps: int = 1000,
         throw: bool = False,
+        stepsize_controller: diffrax.AbstractStepSizeController = diffrax.PIDController(
+            rtol=1e-6, atol=1e-6, pcoeff=1.0, icoeff=1.0
+        ),
+        dt0: float = 0.1,
     ) -> diffrax.Solution:
         ode = fibrosis_ode
         ode = optimal_control.with_extra_term(
@@ -132,12 +139,9 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
 
         terms = diffrax.ODETerm(ode)
         solver = diffrax.Kvaerno5()
-        stepsize_controller = diffrax.PIDController(
-            rtol=1e-4, atol=1e-4, pcoeff=0.1, icoeff=0.3
-        )
 
         macrophage_influx_control = controls.LambdaControl(
-            influx_fn if inflammation_pulse else zero_fn
+            (lambda state: influx_fn(state["t"])) if inflammation_pulse else zero_fn
         )
 
         solution = diffrax.diffeqsolve(
@@ -145,8 +149,9 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             solver=solver,
             t0=t0,
             t1=t1,
-            dt0=0.1,
+            dt0=dt0,
             y0=ode._modify_initial_state(control, t0, y0),
+            # y0=y0,
             args=(control, macrophage_influx_control),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
@@ -164,9 +169,14 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
         key: jax.random.KeyArray,
         *,
         saveat: diffrax.SaveAt = diffrax.SaveAt(t1=True),
+        # saveat: diffrax.SaveAt = diffrax.SaveAt(ts=jnp.linspace(0.0, 200.0, 201)),
         max_steps: int = 10000,
         throw: bool = True,
-    ) -> Array:
+        stepsize_controller: diffrax.AbstractStepSizeController = diffrax.PIDController(
+            rtol=1e-4, atol=1e-4, pcoeff=1.0, icoeff=1.0, dtmax=1.0
+        ),
+        dt0: float = 0.1,
+    ) -> diffrax.Solution:
         solution = self._integrate(
             t0=0.0,
             t1=200.0,
@@ -176,6 +186,8 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
             saveat=saveat,
             max_steps=max_steps,
             throw=throw,
+            stepsize_controller=stepsize_controller,
+            dt0=dt0,
         )
 
-        return solution.ys[-1]
+        return solution
