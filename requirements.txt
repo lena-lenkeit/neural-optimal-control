@@ -1,13 +1,12 @@
-#torch
 jax
 jaxopt
 optax
 diffrax
 equinox
+evosax
 numpy
 scipy
 matplotlib
-torchdiffeq
 tqdm
 ipykernel
 ipywidgets
