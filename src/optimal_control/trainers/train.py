@@ -69,6 +69,7 @@ def step_state(
     return train_state_jaxtypes
 
 
+@eqx.filter_jit
 def solve_optimal_control_problem(
     num_train_steps: int,
     environment: environments.AbstractEnvironment,
