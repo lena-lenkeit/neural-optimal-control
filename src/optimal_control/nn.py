@@ -88,6 +88,9 @@ class InterpolationCurve(eqx.Module):
                 "Either the points of the curve, or the interval info, must be specified to construct this class"
             )
 
+    # @staticmethod
+    # def get_evenly_spaced_times(num_steps: int, method: Literal["step", "linear"]):
+
     @staticmethod
     def interpolate_linear(x: ArrayLike, xp: ArrayLike, fp: ArrayLike) -> Array:
         vintp = jax.vmap(
