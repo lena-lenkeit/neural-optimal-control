@@ -135,6 +135,31 @@ class NonNegativeConstantIntegralConstraint(
         return values
 
 
+class LimitedRangeConstantIntegralConstraint(AbstractGlobalTransformationConstraint):
+    target: Array
+    maximum: Array
+
+    def transform_series(self, values: PyTree, times: PyTree) -> PyTree:
+        def transform_fn(values: Array, times: Array) -> Array:
+            # [-inf, +inf], undefined sum -> [0, 1], sum of one
+            softmax = jax.nn.softmax(values, axis=0)
+
+            # [0, 1], sum of one -> [0, +inf], correct integral
+            # integral = jnp.mean(softmax, axis=0, keepdims=True)
+            # values = softmax / integral
+            values = softmax * self.target
+
+            # [0, +inf] -> [0, maximum], correct integral
+            for i in range(64):
+                extra = jnp.clip(values - self.maximum, a_min=0)
+                total = jnp.mean(extra, axis=0, keepdims=True)
+                values = values - extra + total
+
+            return values
+
+        return jax.tree_map(transform_fn, values, times)
+
+
 class ConstantIntegralConstraint(AbstractConstraint):
     """
     Restricts the integral of the control signal by rescaling to match a target value

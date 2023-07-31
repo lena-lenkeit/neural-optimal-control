@@ -9,5 +9,6 @@ from optimal_control.constraints.base import (
     ConstraintChain,
 )
 from optimal_control.constraints.constraints import (
+    LimitedRangeConstantIntegralConstraint,
     NonNegativeConstantIntegralConstraint,
 )
