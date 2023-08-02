@@ -7,7 +7,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import optax
-from jaxtyping import Array, ArrayLike, PyTree
+from jaxtyping import Array, ArrayLike, PRNGKeyArray, PyTree
 
 import optimal_control.constraints as constraints
 import optimal_control.controls as controls
@@ -28,7 +28,9 @@ class DirectSolver(solvers.AbstractSolver):
     optimizer: optax.GradientTransformation
     ignore_nans: bool = False
 
-    def init(self, control: controls.AbstractControl) -> DirectSolverState:
+    def init(
+        self, control: controls.AbstractControl, key: PRNGKeyArray
+    ) -> DirectSolverState:
         control_params = eqx.filter(control, eqx.is_array)
         optimizer_state = self.optimizer.init(control_params)
 

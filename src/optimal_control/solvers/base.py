@@ -5,7 +5,7 @@ from typing import Callable, List, Optional, Tuple
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, ArrayLike, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, PRNGKeyArray, PyTree, Scalar
 
 import optimal_control.constraints as constraints
 import optimal_control.controls as controls
@@ -19,7 +19,7 @@ class SolverState(eqx.Module):
 
 class AbstractSolver(eqx.Module):
     @abc.abstractmethod
-    def init(self, control: controls.AbstractControl) -> SolverState:
+    def init(self, control: controls.AbstractControl, key: PRNGKeyArray) -> SolverState:
         ...
 
     @abc.abstractmethod
