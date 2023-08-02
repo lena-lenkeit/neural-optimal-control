@@ -101,6 +101,8 @@ class FibrosisState(environments.EnvironmentState):
 
 
 class FibrosisEnvironment(environments.AbstractEnvironment):
+    reward_fn: Callable[..., Scalar] = _fibrosis_reward
+
     def init(self) -> FibrosisState:
         return FibrosisState(
             self._integrate(
@@ -133,7 +135,7 @@ class FibrosisEnvironment(environments.AbstractEnvironment):
     ) -> diffrax.Solution:
         ode = fibrosis_ode
         ode = optimal_control.with_extra_term(
-            ode, g=_fibrosis_reward, num_g_states=1, g0=jnp.zeros(1)
+            ode, g=self.reward_fn, num_g_states=1, g0=jnp.zeros(1)
         )
         ode = optimal_control.with_control(ode, time=True)
 
