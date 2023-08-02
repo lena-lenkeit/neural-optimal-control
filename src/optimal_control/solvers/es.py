@@ -26,7 +26,6 @@ class ESSolver(solvers.AbstractSolver):
     strategy_params: evosax.EvoParams
     parameter_reshaper: evosax.ParameterReshaper
     fitness_shaper: evosax.FitnessShaper
-    num_control_points: int
 
     def init(
         self, control: controls.AbstractControl, key: jax.random.KeyArray
@@ -50,12 +49,13 @@ class ESSolver(solvers.AbstractSolver):
         constraint_chain: List[constraints.AbstractConstraint],
         control: controls.AbstractControl,
         key: jax.random.KeyArray,
+        integrate_kwargs: Optional[dict] = None,
     ) -> Tuple[ESSolverState, controls.AbstractControl, float]:
         strategy_key, fitness_key = jax.random.split(key)
 
         # Get candidates
         control_params_flat, strategy_state = self.strategy.ask(
-            strategy_key, strategy_state, self.strategy_params
+            strategy_key, state.strategy_state, self.strategy_params
         )
 
         # Build vectorized controls
@@ -71,8 +71,8 @@ class ESSolver(solvers.AbstractSolver):
                 environment=environment,
                 environment_state=environment_state,
                 reward_fn=reward_fn,
-                num_control_points=self.num_control_points,
                 key=fitness_key,
+                integrate_kwargs=integrate_kwargs,
             )
         )
 
