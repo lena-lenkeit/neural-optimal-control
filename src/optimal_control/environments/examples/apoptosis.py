@@ -6,13 +6,14 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import scipy.io
-from jaxtyping import Array, ArrayLike
+from jaxtyping import Array, ArrayLike, Scalar
 
+import optimal_control
 import optimal_control.controls as controls
 import optimal_control.environments as environments
 
 
-def apoptosis_ode(t: ArrayLike, x: Array, args: controls.AbstractControl) -> Array:
+def apoptosis_ode(t: Scalar, y: Array, u: Array, args) -> Array:
     # Constants
     k = [None] * 11
 
@@ -29,18 +30,17 @@ def apoptosis_ode(t: ArrayLike, x: Array, args: controls.AbstractControl) -> Arr
     k[10] = 15.4  # KD,L
 
     # Control (CD95L)
-    control = args
-    CD95L = control(t)[0]
+    CD95L = u[0]
 
     # Active CD95 receptors, steady state solution (in response to CD95L / control)
     CD95act = (
-        x[0] ** 3
+        y[0] ** 3
         * k[10] ** 2
         * CD95L
         / (
             (CD95L + k[10])
             * (
-                x[0] ** 2 * k[10] ** 2
+                y[0] ** 2 * k[10] ** 2
                 + k[9] * CD95L**2
                 + 2 * k[9] * k[10] * CD95L
                 + k[9] * k[10] ** 2
@@ -52,36 +52,36 @@ def apoptosis_ode(t: ArrayLike, x: Array, args: controls.AbstractControl) -> Arr
     dx = [None] * 17
 
     dx[0] = 0  # CD95
-    dx[1] = -k[0] * CD95act * x[1] + k[1] * x[6]  # FADD
-    dx[2] = -k[2] * x[2] * x[6]  # p55free
-    dx[3] = -k[7] * x[3] * (x[9] + x[10])  # Bid
-    dx[4] = -k[8] * x[4] * (x[9] + x[10])  # PrNES-mCherry
-    dx[5] = -k[8] * x[5] * x[10]  # PrER-mGFP
+    dx[1] = -k[0] * CD95act * y[1] + k[1] * y[6]  # FADD
+    dx[2] = -k[2] * y[2] * y[6]  # p55free
+    dx[3] = -k[7] * y[3] * (y[9] + y[10])  # Bid
+    dx[4] = -k[8] * y[4] * (y[9] + y[10])  # PrNES-mCherry
+    dx[5] = -k[8] * y[5] * y[10]  # PrER-mGFP
     dx[6] = (
-        k[0] * CD95act * x[1]
-        - k[1] * x[6]
-        - k[2] * x[2] * x[6]
-        + k[3] * x[9]
-        + k[4] * x[8] * (x[7] + x[8])
-        + (k[5] * x[8] * x[9])
+        k[0] * CD95act * y[1]
+        - k[1] * y[6]
+        - k[2] * y[2] * y[6]
+        + k[3] * y[9]
+        + k[4] * y[8] * (y[7] + y[8])
+        + (k[5] * y[8] * y[9])
     )  # DISC
     dx[7] = (
-        k[2] * x[2] * x[6]
-        - k[3] * x[7]
-        - k[4] * x[7] * (x[7] + x[8])
-        - k[5] * x[7] * x[9]
+        k[2] * y[2] * y[6]
+        - k[3] * y[7]
+        - k[4] * y[7] * (y[7] + y[8])
+        - k[5] * y[7] * y[9]
     )  # DISCp55
-    dx[8] = k[3] * x[7] - k[4] * x[8] * (x[7] + x[8]) - k[5] * x[8] * x[9]  # p30
-    dx[9] = -k[3] * x[9] + k[4] * x[7] * (x[7] + x[8]) + k[5] * x[7] * x[9]  # p43
+    dx[8] = k[3] * y[7] - k[4] * y[8] * (y[7] + y[8]) - k[5] * y[8] * y[9]  # p30
+    dx[9] = -k[3] * y[9] + k[4] * y[7] * (y[7] + y[8]) + k[5] * y[7] * y[9]  # p43
     dx[10] = (
-        k[3] * x[9] + k[4] * x[8] * (x[7] + x[8]) + k[5] * x[8] * x[9] - k[6] * x[10]
+        k[3] * y[9] + k[4] * y[8] * (y[7] + y[8]) + k[5] * y[8] * y[9] - k[6] * y[10]
     )  # p18
-    dx[11] = k[6] * x[10]  # p18inactive
-    dx[12] = k[7] * x[3] * (x[9] + x[10])  # tBid
-    dx[13] = k[8] * x[4] * (x[9] + x[10])  # PrNES
-    dx[14] = k[8] * x[4] * (x[9] + x[10])  # mCherry
-    dx[15] = k[8] * x[5] * x[10]  # PrER
-    dx[16] = k[8] * x[5] * x[10]  # mGFP
+    dx[11] = k[6] * y[10]  # p18inactive
+    dx[12] = k[7] * y[3] * (y[9] + y[10])  # tBid
+    dx[13] = k[8] * y[4] * (y[9] + y[10])  # PrNES
+    dx[14] = k[8] * y[4] * (y[9] + y[10])  # mCherry
+    dx[15] = k[8] * y[5] * y[10]  # PrER
+    dx[16] = k[8] * y[5] * y[10]  # mGFP
 
     return jnp.stack(dx, axis=-1)
 
@@ -126,32 +126,35 @@ class ApoptosisEnvironment(environments.AbstractEnvironment):
         control: controls.AbstractControl,
         state: ApoptosisState,
         key: jax.random.KeyArray,
-    ) -> Array:
-        def _integrate(y0: Array) -> Array:
-            terms = diffrax.ODETerm(apoptosis_ode)
-            # solver = diffrax.Kvaerno5()
+        *,
+        t1: Scalar = 180.0,
+        max_steps: int = 181,
+        saveat: diffrax.SaveAt = diffrax.SaveAt(ts=jnp.linspace(0.0, 180.0, 181))
+    ) -> Tuple[diffrax.Solution, Array]:
+        def _integrate(y0: Array) -> diffrax.Solution:
+            ode = apoptosis_ode
+            ode = optimal_control.with_control(ode, time=True)
+
+            terms = diffrax.ODETerm(ode)
             solver = diffrax.Dopri5()
-            # stepsize_controller = diffrax.PIDController(rtol=1e-3, atol=1e-3)
 
             sol = diffrax.diffeqsolve(
                 terms=terms,
                 solver=solver,
                 t0=0.0,
-                t1=180.0,  # Minutes
+                t1=t1,  # Minutes
                 dt0=1.0,
                 y0=y0,
-                args=control,
-                saveat=diffrax.SaveAt(ts=jnp.linspace(0.0, 180.0, 181)),
-                # stepsize_controller=stepsize_controller,
-                max_steps=181,
-                adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=181),
+                args=(control, None),
+                saveat=saveat,
+                max_steps=max_steps,
+                adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=max_steps),
             )
 
-            return sol.ys
+            return sol
 
         vintegrate = jax.vmap(_integrate, in_axes=(0,), out_axes=0)
         y0, idx = self._sample_x0(state, key)
-        ys = vintegrate(y0)
-        # ys = _integrate(y0[0])
+        solution = vintegrate(y0)
 
-        return ys, state.x0[idx, -1] * 1.4897
+        return solution, state.x0[idx, -1] * 1.4897
