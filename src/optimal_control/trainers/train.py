@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import jax_tqdm as jtq
 import optax
 from jax import lax
-from jaxtyping import Array, ArrayLike, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, PRNGKeyArray, PyTree, Scalar
 from tqdm.auto import tqdm as tq
 from tqdm.auto import trange
 
@@ -29,9 +29,10 @@ def init_state(
     environment: environments.AbstractEnvironment,
     solver: solvers.AbstractSolver,
     control: controls.AbstractControl,
+    key: PRNGKeyArray,
 ) -> Tuple[environments.EnvironmentState, solvers.SolverState]:
     environment_state = environment.init()
-    solver_state = solver.init(control)
+    solver_state = solver.init(control=control, key=key)
 
     return environment_state, solver_state
 
@@ -82,12 +83,14 @@ def solve_optimal_control_problem(
     integrate_kwargs: dict = {},
 ) -> Tuple[float, controls.AbstractControl]:
     # Initialize states
+    key, subkey = jax.random.split(key)
     environment_state, solver_state = init_state(
-        environment=environment, solver=solver, control=control
+        environment=environment, solver=solver, control=control, key=subkey
     )
 
+    key, subkey = jax.random.split(key)
     train_state = TrainState(
-        control=control, solver_state=solver_state, reward=jnp.float_(0.0), key=key
+        control=control, solver_state=solver_state, reward=jnp.float_(0.0), key=subkey
     )
 
     train_state_jaxtypes, train_state_pytypes = eqx.partition(train_state, eqx.is_array)
