@@ -77,7 +77,7 @@ class ESSolver(solvers.AbstractSolver):
         )
 
         # Evaluate candidates
-        fitness = fitness_fn(control_population)
+        fitness, projected_control_population = fitness_fn(control_population)
         fitness = self.fitness_shaper.apply(control_params_flat, fitness).astype(
             jnp.float32
         )
@@ -88,7 +88,7 @@ class ESSolver(solvers.AbstractSolver):
 
         # Extract best control
         best_control_params_flat = strategy_state.best_member
-        best_control_params_pytree = self.parameter_reshaper.reshape(
+        best_control_params_pytree = self.parameter_reshaper.reshape_single(
             best_control_params_flat
         )
         best_control = eqx.combine(best_control_params_pytree, control_static_pytree)
@@ -96,5 +96,5 @@ class ESSolver(solvers.AbstractSolver):
         return (
             ESSolverState(strategy_state=strategy_state),
             best_control,
-            strategy_state.best_fitness,
+            strategy_state.best_fitness.astype(jnp.float_),
         )
