@@ -115,7 +115,7 @@ class ApoptosisEnvironment(environments.AbstractEnvironment):
 
         x0 = state.x0[idx]
         x0 = jnp.concatenate(
-            (x0[..., [0, 1, 2, 3, 5, 4]], jnp.zeros((self.num_cells, 11))),
+            (x0[..., [0, 1, 2, 3, 5, 4]], jnp.zeros((len(idx), 11))),
             axis=-1,
         )
 
@@ -129,32 +129,67 @@ class ApoptosisEnvironment(environments.AbstractEnvironment):
         *,
         t1: Scalar = 180.0,
         max_steps: int = 181,
-        saveat: diffrax.SaveAt = diffrax.SaveAt(ts=jnp.linspace(0.0, 180.0, 181))
+        saveat: diffrax.SaveAt = diffrax.SaveAt(ts=jnp.linspace(0.0, 180.0, 181)),
+        vmap: str = "outer"
     ) -> Tuple[diffrax.Solution, Array]:
-        def _integrate(y0: Array) -> diffrax.Solution:
-            ode = apoptosis_ode
-            ode = optimal_control.with_control(ode, time=True)
+        if vmap == "outer":
 
-            terms = diffrax.ODETerm(ode)
-            solver = diffrax.Dopri5()
+            def _integrate(y0: Array) -> diffrax.Solution:
+                ode = apoptosis_ode
+                ode = optimal_control.with_control(ode, time=True)
 
-            sol = diffrax.diffeqsolve(
-                terms=terms,
-                solver=solver,
-                t0=0.0,
-                t1=t1,  # Minutes
-                dt0=1.0,
-                y0=y0,
-                args=(control, None),
-                saveat=saveat,
-                max_steps=max_steps,
-                adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=max_steps),
-            )
+                terms = diffrax.ODETerm(ode)
+                solver = diffrax.Dopri5()
 
-            return sol
+                sol = diffrax.diffeqsolve(
+                    terms=terms,
+                    solver=solver,
+                    t0=0.0,
+                    t1=t1,  # Minutes
+                    dt0=1.0,
+                    y0=y0,
+                    args=(control, None),
+                    saveat=saveat,
+                    max_steps=max_steps,
+                    adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=max_steps),
+                )
 
-        vintegrate = jax.vmap(_integrate, in_axes=(0,), out_axes=0)
-        y0, idx = self._sample_x0(state, key)
-        solution = vintegrate(y0)
+                return sol
 
-        return solution, state.x0[idx, -1] * 1.4897
+            vintegrate = jax.vmap(_integrate, in_axes=(0,), out_axes=0)
+            y0, idx = self._sample_x0(state, key)
+            solution = vintegrate(y0)
+
+            return solution, state.x0[idx, -1] * 1.4897
+        elif vmap == "inner":
+
+            def _integrate(y0: Array) -> diffrax.Solution:
+                ode = eqx.filter_vmap(
+                    apoptosis_ode, in_axes=(None, 0, None, None), out_axes=0
+                )
+                ode = optimal_control.with_control(ode, time=True)
+
+                terms = diffrax.ODETerm(ode)
+                solver = diffrax.Dopri5()
+
+                sol = diffrax.diffeqsolve(
+                    terms=terms,
+                    solver=solver,
+                    t0=0.0,
+                    t1=t1,  # Minutes
+                    dt0=1.0,
+                    y0=y0,
+                    args=(control, None),
+                    saveat=saveat,
+                    max_steps=max_steps,
+                    adjoint=diffrax.RecursiveCheckpointAdjoint(checkpoints=max_steps),
+                )
+
+                return sol
+
+            y0, idx = self._sample_x0(state, key)
+            solution = _integrate(y0)
+
+            return solution, state.x0[idx, -1] * 1.4897
+        else:
+            raise ValueError(vmap)
