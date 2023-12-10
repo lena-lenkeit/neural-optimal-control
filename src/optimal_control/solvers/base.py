@@ -124,6 +124,9 @@ def build_control(
 
         return control
 
+    # TODO: For projection constraints, this isn't entirely correct, as they might
+    # not receive gradients when outside of the valid set.
+    # Can either be fixed here, or by changing how the solvers work.
     implicit_control_fn = getattr(control, "get_implicit_control", None)
     if exists(implicit_control_fn):
         implicit_control = implicit_control_fn()

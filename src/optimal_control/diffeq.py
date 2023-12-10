@@ -83,10 +83,10 @@ def with_cde_rnn_control(
         dt = jnp.ones(1)
         dX = jnp.concatenate((dt, f_dy), axis=-1)
 
-        # c_dzdX = control(c_z)
-        # c_dz = c_dzdX @ dX
+        c_dzdX = control(c_z)
+        c_dz = c_dzdX @ dX
 
-        c_dz = control(c_z, dX, f_y)
+        # c_dz = control(c_z, dX, f_y)
 
         dy = jnp.concatenate((f_dy, c_dz), axis=-1)
         return dy

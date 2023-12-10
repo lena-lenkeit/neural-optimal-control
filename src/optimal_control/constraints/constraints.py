@@ -52,6 +52,9 @@ class NonNegativeConstantIntegralConstraint(
             # Calculate integral by summing over constant pieces
             integral = jnp.sum(area, axis=0, keepdims=True)
 
+            if self.constrain_sum:
+                integral = jnp.sum(integral)
+
             # Average over the time interval, if necessary
             if self.norm == "average":
                 integral = integral / outer_dt_from_times(times).reshape(-1, 1)

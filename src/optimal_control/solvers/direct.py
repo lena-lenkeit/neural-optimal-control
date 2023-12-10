@@ -72,6 +72,8 @@ class DirectSolver(solvers.AbstractSolver):
             control_grads, state.optimizer_state, params=control_params
         )
 
+        # TODO: This should come before, not after the transformation
+        # For most optimizers, the order doesn't make a difference, but better be safe
         # Flip gradient sign, to maximize the reward
         updates = jax.tree_map(invert, updates)
 

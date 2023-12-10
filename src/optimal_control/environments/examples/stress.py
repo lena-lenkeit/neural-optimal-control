@@ -6,7 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import scipy.io
-from jaxtyping import Array, PyTree, Scalar
+from jaxtyping import Array, ArrayLike, PRNGKeyArray, PyTree, Scalar
 
 import optimal_control
 import optimal_control.controls as controls
@@ -16,7 +16,9 @@ import optimal_control.environments as environments
 def det_ThaKin_ld_C1_G0_1K_wP_kd_wp_67BF35A2(
     t: Scalar, y: Array, u: Array, args: Array
 ) -> Array:
-    k = args
+    k, tha_mult = args
+
+    u = [u[0] * tha_mult]
 
     # ODE
     dy = [None] * 10
@@ -119,6 +121,7 @@ class StressEnvironment(environments.AbstractEnvironment):
             icoeff=1.0,
             dtmax=30,
         ),
+        tha_mult: Scalar = 1.0,
     ) -> diffrax.Solution:
         ode = det_ThaKin_ld_C1_G0_1K_wP_kd_wp_67BF35A2
         ode = optimal_control.with_control(ode, time=True)
@@ -133,7 +136,7 @@ class StressEnvironment(environments.AbstractEnvironment):
             t1=t1,
             dt0=0.1,
             y0=y0,
-            args=(control, parameters),
+            args=(control, (parameters, tha_mult)),
             saveat=saveat,
             stepsize_controller=stepsize_controller,
             max_steps=10000,
@@ -145,7 +148,7 @@ class StressEnvironment(environments.AbstractEnvironment):
         self,
         control: controls.AbstractControl,
         state: StressState,
-        key: jax.random.KeyArray,
+        key: PRNGKeyArray,
         *,
         t1: Scalar = 20 * 60,
         stepsize_controller: diffrax.AbstractStepSizeController = diffrax.PIDController(
@@ -155,32 +158,52 @@ class StressEnvironment(environments.AbstractEnvironment):
             icoeff=1.0,
             dtmax=30,
         ),
+        tha_lognormal_mean: Scalar = 0.0,  # 0.40546510810816438197801311546435,
+        tha_lognormal_std: Scalar = 0.0,
+        k_lognormal_std: ArrayLike = 0.0,
+        s0_lognormal_std: ArrayLike = 0.0,
     ) -> Tuple[Array, Array]:
-        ts = jnp.linspace(0.0, t1, int(t1))
-        ts1 = ts[: ts.shape[0] // 2]
-        ts2 = ts[ts.shape[0] // 2 :]
+        key, subkey = jax.random.split(key)
+        tha_mult = 1.0
+        tha_mult *= jnp.exp(
+            tha_lognormal_mean + jax.random.normal(subkey) * tha_lognormal_std
+        )
+
+        key, subkey = jax.random.split(key)
+        k = state.k
+        k = k * jnp.exp(jax.random.normal(subkey, k.shape) * k_lognormal_std)
+
+        key, subkey = jax.random.split(key)
+        s0 = state.s0
+        s0 = s0 * jnp.exp(jax.random.normal(subkey, s0.shape) * s0_lognormal_std)
+
+        ts = jnp.linspace(0.0, t1, int(t1) + 1)
+        ts1 = ts[: ts.shape[0] // 2 + 1]
+        ts2 = ts[ts.shape[0] // 2 + 1 :]
 
         sol1 = self._integrate(
             control=control,
-            parameters=state.k,
+            parameters=k,
             t0=ts1[0],
             t1=ts1[-1],
-            y0=state.s0,
+            y0=s0,
             saveat=diffrax.SaveAt(ts=ts1),
             stepsize_controller=stepsize_controller,
+            tha_mult=tha_mult,
         )
 
         sol2 = self._integrate(
             control=controls.LambdaControl(lambda _: jnp.zeros(1)),
-            parameters=state.k,
+            parameters=k,
             t0=ts1[-1],
             t1=ts2[-1],
             y0=sol1.ys[-1],
             saveat=diffrax.SaveAt(ts=ts2),
             stepsize_controller=stepsize_controller,
+            tha_mult=tha_mult,
         )
 
         ys = jnp.concatenate((sol1.ys, sol2.ys), axis=0)
-        sg = f_sg(ys[:, 1], state.k[4], state.k[5])
+        sg = f_sg(ys[:, 1], k[4], k[5])
 
         return ys, sg
