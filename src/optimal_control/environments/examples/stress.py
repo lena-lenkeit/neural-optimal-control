@@ -162,6 +162,7 @@ class StressEnvironment(environments.AbstractEnvironment):
         tha_lognormal_std: Scalar = 0.0,
         k_lognormal_std: ArrayLike = 0.0,
         s0_lognormal_std: ArrayLike = 0.0,
+        zero_control: bool = True,
     ) -> Tuple[Array, Array]:
         key, subkey = jax.random.split(key)
         tha_mult = 1.0
@@ -193,7 +194,11 @@ class StressEnvironment(environments.AbstractEnvironment):
         )
 
         sol2 = self._integrate(
-            control=controls.LambdaControl(lambda _: jnp.zeros(1)),
+            control=(
+                controls.LambdaControl(lambda _: jnp.zeros(1))
+                if zero_control
+                else control
+            ),
             parameters=k,
             t0=ts1[-1],
             t1=ts2[-1],
