@@ -30,17 +30,17 @@ def plot_fig2():
     plot_fibrosis_phase_grid_panel(
         fig,
         grid_spec[1, 0],
-        data_filepath="paper/data/fibrosis/const_grid_scan.npz",
+        data_filepath="paper/data/fibrosis/const_grid_scan_new.npz",
     )
     # plot_panel_ref_label(ax[1, 0], ref_label="C")
 
     # plot_placeholder(ax[1, 1], placeholder="Opt. Phase Inset")
     plot_fibrosis_phase_grid_panel(
-        fig, grid_spec[1, 1], data_filepath="paper/data/fibrosis/opt_grid_scan.npz"
+        fig, grid_spec[1, 1], data_filepath="paper/data/fibrosis/opt_grid_scan_new.npz"
     )
     # plot_placeholder(ax[1, 2], placeholder="Opt. Conc. Inset")
     plot_fibrosis_conc_grid_panel(
-        fig, grid_spec[1, 2], data_filepath="paper/data/fibrosis/opt_grid_scan.npz"
+        fig, grid_spec[1, 2], data_filepath="paper/data/fibrosis/opt_grid_scan_new.npz"
     )
     # plot_panel_ref_label(ax[1, 1], ref_label="D")
 
