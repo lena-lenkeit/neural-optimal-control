@@ -1,0 +1,12 @@
+# arial_style.mplstyle
+
+# Set the default font to Arial
+font.family: sans-serif
+font.sans-serif: Arial
+
+# Other settings (customize as needed)
+# For example, to set the font size for labels and titles:
+axes.labelsize: 10
+xtick.labelsize: 10
+ytick.labelsize: 10
+legend.fontsize: 10
